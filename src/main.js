@@ -8,6 +8,13 @@ const WINDOW_SIZE = { width: 128, height: 128 };
 
 let win = null;
 let tray = null;
+let quitting = false;
+
+// ---------- 로그 (%APPDATA%\desktop-pet\main.log) ----------
+function log(...args) {
+  const line = `[${new Date().toISOString()}] pid=${process.pid} ${args.join(' ')}\n`;
+  try { fs.appendFileSync(path.join(app.getPath('userData'), 'main.log'), line); } catch (_) { /* 무시 */ }
+}
 
 // ---------- 위치 저장/복원 ----------
 const stateFile = () => path.join(app.getPath('userData'), 'window-state.json');
@@ -56,6 +63,18 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.loadFile(path.join(__dirname, 'index.html'));
 
+  // 이미지 우클릭: Windows 기본 창 메뉴(이동/닫기 등) 대신 앱 메뉴 표시
+  win.on('system-context-menu', (e) => {
+    e.preventDefault();
+    buildMenu().popup({ window: win });
+  });
+  // Alt+F4 등으로 창을 닫으면 앱 전체를 종료 (창만 닫히고 프로세스가 남는 것 방지)
+  win.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    quitApp();
+  });
+
   let saveTimer = null;
   win.on('moved', () => {
     clearTimeout(saveTimer);
@@ -64,20 +83,26 @@ function createWindow() {
 }
 
 function toggleWindow() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   if (win.isVisible()) win.hide();
   else win.showInactive(); // 다른 창의 포커스를 뺏지 않고 표시
   updateTrayMenu();
 }
 
 // ---------- 트레이 ----------
+// 트레이 우클릭 메뉴와 이미지 우클릭 메뉴에서 같이 사용
+function buildMenu() {
+  const visible = win && !win.isDestroyed() && win.isVisible();
+  return Menu.buildFromTemplate([
+    { label: visible ? `숨기기 (${TOGGLE_SHORTCUT})` : `보이기 (${TOGGLE_SHORTCUT})`, click: toggleWindow },
+    { type: 'separator' },
+    { label: '종료', click: quitApp },
+  ]);
+}
+
 function updateTrayMenu() {
   if (!tray) return;
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: win && win.isVisible() ? `숨기기 (${TOGGLE_SHORTCUT})` : `보이기 (${TOGGLE_SHORTCUT})`, click: toggleWindow },
-    { type: 'separator' },
-    { label: '종료', click: () => app.quit() },
-  ]));
+  tray.setContextMenu(buildMenu());
 }
 
 function createTray() {
@@ -88,20 +113,42 @@ function createTray() {
   updateTrayMenu();
 }
 
+// ---------- 종료 ----------
+function quitApp() {
+  if (quitting) return;
+  quitting = true;
+  log('quit requested');
+  savePosition();
+  globalShortcut.unregisterAll();
+  if (tray) { tray.destroy(); tray = null; }
+  if (win && !win.isDestroyed()) win.destroy();
+  app.quit();
+  // app.quit()으로 프로세스가 끝나지 않는 경우를 대비해 강제 종료
+  setTimeout(() => { log('force exit'); app.exit(0); }, 1500).unref();
+}
+
 // ---------- 앱 수명 주기 ----------
 if (!app.requestSingleInstanceLock()) {
-  app.quit(); // 이미 실행 중이면 두 번째 실행은 바로 종료
+  // 이미 실행 중인 프로세스가 있으면 그쪽에 알리고(second-instance) 이 프로세스는 종료
+  log('another instance is running -> exit');
+  app.quit();
 } else {
+  // 이미 실행 중일 때 exe를 다시 실행하면, 숨겨진 창을 다시 보여줌
+  app.on('second-instance', () => {
+    log('second-instance -> show window');
+    if (win && !win.isDestroyed()) { win.showInactive(); updateTrayMenu(); }
+  });
+
   app.whenReady().then(() => {
+    log('start', `v${app.getVersion()}`);
     createWindow();
     createTray();
     if (!globalShortcut.register(TOGGLE_SHORTCUT, toggleWindow)) {
-      console.warn(`단축키 등록 실패: ${TOGGLE_SHORTCUT} (다른 프로그램이 사용 중일 수 있음)`);
+      log(`shortcut register failed: ${TOGGLE_SHORTCUT}`);
     }
   });
 
-  app.on('before-quit', savePosition);
-  app.on('will-quit', () => globalShortcut.unregisterAll());
-  // 창을 숨겨도 트레이로 계속 실행되도록 기본 종료 동작을 막음
-  app.on('window-all-closed', (e) => e.preventDefault());
+  app.on('will-quit', () => { globalShortcut.unregisterAll(); log('will-quit'); });
+  // 리스너를 등록해 두면 창이 모두 닫혀도 앱이 자동 종료되지 않음 (트레이로 계속 실행)
+  app.on('window-all-closed', () => {});
 }
