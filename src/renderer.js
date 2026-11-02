@@ -107,6 +107,7 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(1000, now - last); // 창을 숨겼다 다시 보이면 큰 값이 들어오므로 제한
   last = now;
+  window.pet.frame(); // 메인 프로세스가 이 시점에 창 위치를 계산 (화면 갱신 주기에 맞춘 이동)
   resizeCanvasIfNeeded();
   advance(dt);
   if (dirty) draw();

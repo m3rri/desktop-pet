@@ -1,13 +1,17 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen, ipcMain, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 const TRAY_ICON = path.join(ASSETS, 'tray.png');
 const DEFAULT_PET_DIR = path.join(ASSETS, 'pets', 'default');
 const TOGGLE_SHORTCUT = 'CommandOrControl+Alt+P';
-const TICK_MS = 33;      // 이동 계산 주기 (~30fps)
-const DRAG_TICK_MS = 16; // 드래그 중 커서 추적 주기 (~60fps)
+// 이동은 렌더러가 화면을 그릴 때마다(requestAnimationFrame) 보내는 'pet:frame' 신호에 맞춰 계산.
+// setInterval은 Windows 타이머 정밀도(약 15.6ms, 배터리 모드에서 더 불규칙)에 묶여 움직임이 끊겨 보였음.
+// 렌더러 신호가 끊기면(창이 가려져 그리기가 멈춘 경우 등) 아래 주기로 대신 계산
+const FALLBACK_TICK_MS = 100;
+const FRAME_TIMEOUT_MS = 200;
 
 // 상태 이름 = 이미지 파일 이름. loop=false 인 상태는 1회 재생 후 idle로 돌아감
 const STATE_DEFAULTS = {
@@ -24,6 +28,7 @@ let win = null;
 let tray = null;
 let pet = null;
 let quitting = false;
+let settings = { display: null }; // display: 표시할 모니터 식별 정보. null 이면 자동(지금 있는 모니터)
 
 // ---------- 로그 (%APPDATA%\desktop-pet\main.log) ----------
 function log(...args) {
@@ -81,21 +86,76 @@ function loadPet() {
   throw new Error('idle 이미지가 있는 캐릭터 폴더를 찾을 수 없음');
 }
 
+// ---------- 설정 (%APPDATA%\desktop-pet\settings.json) ----------
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+
+function loadSettings() {
+  try {
+    settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) };
+  } catch (e) {
+    if (e.code !== 'ENOENT') log('settings 읽기 실패, 기본값 사용:', e.message);
+  }
+}
+
+function saveSettings() {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2)); } catch (e) { log('save settings failed:', e.message); }
+}
+
+// ---------- 모니터 ----------
+// 고정 모니터가 설정되어 있으면 그 모니터, 연결되어 있지 않으면 주 모니터.
+// 설정은 지우지 않으므로 모니터를 다시 연결하면 원래 모니터로 돌아감
+function fixedDisplay() {
+  if (!settings.display) return null;
+  return resolveDisplay(settings.display, screen.getAllDisplays()) || screen.getPrimaryDisplay();
+}
+
+// 캐릭터가 머물 모니터: 고정 모니터, 또는 자동이면 창이 지금 있는 모니터
+function activeDisplay() {
+  return fixedDisplay() || screen.getDisplayMatching(win.getBounds());
+}
+
+// 창을 대상 모니터 안으로 맞추고, 걷는 중이었으면 멈춤 (목표 지점이 다른 모니터일 수 있음)
+function ensureOnDisplay(display) {
+  if (!win || win.isDestroyed()) return;
+  syncPositionFromWindow();
+  const p = fitInto({ x: behavior.x, y: behavior.y }, pet.size, display);
+  if (Math.round(p.x) !== Math.round(behavior.x) || Math.round(p.y) !== Math.round(behavior.y)) {
+    behavior.x = p.x; behavior.y = p.y;
+    moveWindow(p.x, p.y);
+  }
+  if (behavior.state === 'walk') { setState('idle'); scheduleNextMove(); }
+}
+
+function setDisplaySetting(display) {
+  settings.display = display ? displayKey(display) : null;
+  saveSettings();
+  log('display setting:', display ? `${display.label} ${JSON.stringify(display.bounds)}` : 'auto');
+  ensureOnDisplay(activeDisplay());
+  updateTrayMenu();
+}
+
+// 모니터 연결·해제·해상도/배율 변경. 이벤트가 연달아 오므로 마지막 이벤트 후 한 번만 처리
+let displayChangeTimer = null;
+function onDisplaysChanged(reason) {
+  clearTimeout(displayChangeTimer);
+  displayChangeTimer = setTimeout(() => {
+    log('displays changed:', reason, screen.getAllDisplays().map((d) => `${d.label}${JSON.stringify(d.bounds)}`).join(' '));
+    ensureOnDisplay(activeDisplay());
+    updateTrayMenu();
+  }, 500);
+}
+
 // ---------- 위치 저장/복원 ----------
 const stateFile = () => path.join(app.getPath('userData'), 'window-state.json');
 
 function loadPosition() {
+  let saved = null;
+  try { saved = JSON.parse(fs.readFileSync(stateFile(), 'utf8')); } catch (_) { /* 첫 실행이거나 파일이 깨진 경우 */ }
   const s = pet.size;
-  try {
-    const { x, y } = JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
-    // 저장된 위치가 현재 연결된 모니터 안에 있을 때만 사용 (모니터를 뺀 경우 대비)
-    const visible = screen.getAllDisplays().some(({ workArea: a }) =>
-      x >= a.x && y >= a.y && x + s <= a.x + a.width && y + s <= a.y + a.height);
-    if (visible) return { x, y };
-  } catch (_) { /* 첫 실행이거나 파일이 깨진 경우 */ }
-
-  const a = screen.getPrimaryDisplay().workArea; // 기본값: 주 모니터 오른쪽 아래
-  return { x: a.x + a.width - s - 40, y: a.y + a.height - s - 40 };
+  const display = fixedDisplay()
+    || (saved ? screen.getDisplayNearestPoint({ x: Math.round(saved.x + s / 2), y: Math.round(saved.y + s / 2) }) : null)
+    || screen.getPrimaryDisplay();
+  return fitInto(saved, s, display); // 모니터 밖이면 그 모니터의 오른쪽 아래
 }
 
 function savePosition() {
@@ -112,13 +172,12 @@ const behavior = {
   target: null,
   nextMoveAt: 0,
   lastTick: Date.now(),
+  lastFrameAt: 0,
   dragging: false,
   dragOffset: { x: 0, y: 0 },
-  dragTimer: null,
 };
 
 const rand = (min, max) => min + Math.random() * (max - min);
-const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
 function sendToPet(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -150,9 +209,9 @@ function moveWindow(x, y) {
   win.setBounds({ x: Math.round(x), y: Math.round(y), width: pet.size, height: pet.size });
 }
 
-// 현재 모니터 작업 영역 안에서, 지금 위치 근처의 임의 지점
+// 머물 모니터의 작업 영역 안에서, 지금 위치 근처의 임의 지점
 function pickTarget() {
-  const a = screen.getDisplayMatching(win.getBounds()).workArea;
+  const a = activeDisplay().workArea;
   const s = pet.size;
   return {
     x: clamp(behavior.x + rand(-400, 400), a.x, a.x + a.width - s),
@@ -160,11 +219,20 @@ function pickTarget() {
   };
 }
 
+// 드래그 중: 렌더러 좌표 대신 OS 커서 위치를 직접 따라감 (창이 움직이는 동안 렌더러 좌표가 흔들리는 문제 방지)
+function followCursor() {
+  const p = screen.getCursorScreenPoint();
+  behavior.x = p.x - behavior.dragOffset.x;
+  behavior.y = p.y - behavior.dragOffset.y;
+  moveWindow(behavior.x, behavior.y);
+}
+
 function tick() {
   const now = Date.now();
   const dt = Math.min(0.1, (now - behavior.lastTick) / 1000);
   behavior.lastTick = now;
-  if (!win || win.isDestroyed() || !win.isVisible() || behavior.dragging) return;
+  if (!win || win.isDestroyed() || !win.isVisible()) return;
+  if (behavior.dragging) { followCursor(); return; }
 
   // 잠자기: OS 기준으로 키보드·마우스 입력이 없던 시간
   const idleSec = powerMonitor.getSystemIdleTime();
@@ -226,7 +294,13 @@ function registerIpc() {
     }
   });
 
-  // 드래그: 렌더러 좌표 대신 OS 커서 위치를 직접 따라감 (창이 움직이는 동안 렌더러 좌표가 흔들리는 문제 방지)
+  // 렌더러가 한 프레임 그릴 때마다 호출됨 (이동·드래그 계산 시점)
+  ipcMain.on('pet:frame', () => {
+    behavior.lastFrameAt = Date.now();
+    tick();
+  });
+
+  // 드래그 시작: 이후 프레임마다 tick()에서 커서를 따라감
   ipcMain.on('pet:drag-start', () => {
     if (!win || win.isDestroyed()) return;
     syncPositionFromWindow();
@@ -234,23 +308,17 @@ function registerIpc() {
     behavior.dragging = true;
     behavior.dragOffset = { x: c.x - behavior.x, y: c.y - behavior.y };
     setState('drag');
-    clearInterval(behavior.dragTimer);
-    behavior.dragTimer = setInterval(() => {
-      if (!win || win.isDestroyed()) return;
-      const p = screen.getCursorScreenPoint();
-      behavior.x = p.x - behavior.dragOffset.x;
-      behavior.y = p.y - behavior.dragOffset.y;
-      moveWindow(behavior.x, behavior.y);
-    }, DRAG_TICK_MS);
   });
 
   ipcMain.on('pet:drag-end', () => {
-    clearInterval(behavior.dragTimer);
-    behavior.dragTimer = null;
     if (!behavior.dragging) return;
     behavior.dragging = false;
     setState('idle');
     scheduleNextMove();
+    // 고정 모니터 설정 중에 다른 모니터로 끌어다 놓으면, 놓은 모니터로 설정을 바꿈
+    const dropped = screen.getDisplayMatching(win.getBounds());
+    if (settings.display && dropped.id !== activeDisplay().id) setDisplaySetting(dropped);
+    else ensureOnDisplay(activeDisplay()); // 화면 가장자리 밖으로 걸친 경우 안으로
     savePosition();
   });
 
@@ -276,6 +344,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false, // 포커스가 없어도 프레임 신호가 느려지지 않게
     },
   });
   // 'screen-saver' 레벨이어야 다른 항상 위 창(작업표시줄 등)보다도 위에 뜸
@@ -311,10 +380,35 @@ function toggleWindow() {
 }
 
 // ---------- 메뉴 (트레이 우클릭, 이미지 우클릭 공용) ----------
+function buildDisplayMenu() {
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+  const fixed = settings.display ? resolveDisplay(settings.display, displays) : null;
+  const items = [
+    { label: '자동 (지금 있는 모니터)', type: 'radio', checked: !settings.display, click: () => setDisplaySetting(null) },
+    { type: 'separator' },
+    ...displays.map((d, i) => ({
+      label: displayMenuLabel(d, i, primaryId),
+      type: 'radio',
+      checked: !!fixed && fixed.id === d.id,
+      click: () => setDisplaySetting(d),
+    })),
+  ];
+  // 설정한 모니터가 빠져 있으면, 설정은 유지된 채 주 모니터에 표시 중임을 보여줌
+  if (settings.display && !fixed) {
+    items.push({ type: 'separator' }, {
+      label: `${settings.display.label || '설정한 모니터'} (연결 안 됨 - 주 모니터에 표시 중)`,
+      type: 'radio', checked: true, enabled: false,
+    });
+  }
+  return items;
+}
+
 function buildMenu() {
   const visible = win && !win.isDestroyed() && win.isVisible();
   return Menu.buildFromTemplate([
     { label: visible ? `숨기기 (${TOGGLE_SHORTCUT})` : `보이기 (${TOGGLE_SHORTCUT})`, click: toggleWindow },
+    { label: '표시할 모니터', submenu: buildDisplayMenu() },
     { type: 'separator' },
     { label: '종료', click: quitApp },
   ]);
@@ -338,7 +432,6 @@ function quitApp() {
   quitting = true;
   log('quit requested');
   savePosition();
-  clearInterval(behavior.dragTimer);
   globalShortcut.unregisterAll();
   if (tray) { tray.destroy(); tray = null; }
   if (win && !win.isDestroyed()) win.destroy();
@@ -368,11 +461,17 @@ if (!app.requestSingleInstanceLock()) {
       app.exit(1);
       return;
     }
+    loadSettings();
     registerIpc();
     createWindow();
     createTray();
+    screen.on('display-added', () => onDisplaysChanged('added'));
+    screen.on('display-removed', () => onDisplaysChanged('removed'));
+    screen.on('display-metrics-changed', (_e, _d, changed) => onDisplaysChanged(`metrics:${changed.join(',')}`));
     scheduleNextMove();
-    setInterval(tick, TICK_MS);
+    setInterval(() => {
+      if (Date.now() - behavior.lastFrameAt > FRAME_TIMEOUT_MS) tick();
+    }, FALLBACK_TICK_MS);
     if (!globalShortcut.register(TOGGLE_SHORTCUT, toggleWindow)) {
       log(`shortcut register failed: ${TOGGLE_SHORTCUT}`);
     }

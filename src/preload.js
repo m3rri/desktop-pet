@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pet', {
   load: () => ipcRenderer.invoke('pet:load'),
   onState: (cb) => ipcRenderer.on('pet:state', (_e, state) => cb(state)),
   onFacing: (cb) => ipcRenderer.on('pet:facing', (_e, facing) => cb(facing)),
+  frame: () => ipcRenderer.send('pet:frame'),
   click: () => ipcRenderer.send('pet:click'),
   animEnd: (state) => ipcRenderer.send('pet:anim-end', state),
   dragStart: () => ipcRenderer.send('pet:drag-start'),
