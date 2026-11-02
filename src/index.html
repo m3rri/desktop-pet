@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
   <style>
     html, body {
       margin: 0;
@@ -12,18 +12,12 @@
       background: transparent;
       user-select: none;
     }
-    /* 창 전체를 드래그 영역으로 지정 (MVP용. 클릭 반응을 넣을 때 직접 드래그 구현으로 교체) */
-    body { -webkit-app-region: drag; }
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      pointer-events: none;
-      -webkit-user-drag: none;
-    }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    canvas:active { cursor: grabbing; }
   </style>
 </head>
 <body>
-  <img src="../assets/pet.png" alt="">
+  <canvas id="pet"></canvas>
+  <script src="renderer.js"></script>
 </body>
 </html>
