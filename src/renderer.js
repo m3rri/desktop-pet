@@ -12,12 +12,33 @@ let currentState = 'idle';
 let player = null;       // { name, anim, loop, idx, elapsed, ended }
 let dirty = true;
 let dpr = 0;
+let layout = null;       // 마지막으로 그린 위치·배율 (클릭 판정에 사용)
+let cursor = null;       // 창 기준 커서 위치 (창 밖이면 null)
+let interactive = false; // false 이면 클릭이 뒤 창으로 통과
+const HIT_ALPHA = 40;    // 이 값보다 불투명한 픽셀만 클릭 가능 (0~255)
 
 const STATIC_ONE_SHOT_MS = 600; // 1회 재생 상태인데 정지 이미지 한 장뿐일 때 보여줄 시간
 const ONE_SHOT_STATES = new Set(['click']);
 
 // ---------- 디코딩 ----------
+// 프레임마다 투명도(alpha) 값만 따로 저장해 두고 클릭 판정에 사용
+function alphaMask(bitmap) {
+  const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bitmap, 0, 0);
+  const rgba = g.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  const alpha = new Uint8Array(bitmap.width * bitmap.height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+  return alpha;
+}
+
 async function decodeImage(bytes, mime) {
+  const frames = await decodeFrames(bytes, mime);
+  for (const f of frames) f.alpha = alphaMask(f.bitmap);
+  return frames;
+}
+
+async function decodeFrames(bytes, mime) {
   if ('ImageDecoder' in window) {
     try {
       const decoder = new ImageDecoder({ data: bytes, type: mime });
@@ -99,8 +120,40 @@ function draw() {
   // 비율 유지, 하단 중앙 정렬: 상태마다 이미지 크기가 달라도 발 위치가 고정됨
   const scale = Math.min(canvas.width / bmp.width, canvas.height / bmp.height);
   const w = bmp.width * scale, h = bmp.height * scale;
-  if (facing !== baseFacing) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+  const flipped = facing !== baseFacing;
+  if (flipped) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
   ctx.drawImage(bmp, (canvas.width - w) / 2, canvas.height - h, w, h);
+  layout = { scale, x: (canvas.width - w) / 2, y: canvas.height - h, flipped };
+  updateInteractive(); // 프레임이 바뀌면 커서 아래 픽셀도 바뀜
+}
+
+// ---------- 투명 영역 클릭 통과 ----------
+// 커서 위치(창 기준, DIP)가 현재 프레임의 불투명한 픽셀 위인지
+function hitTest(pos) {
+  if (!pos || !player || !layout) return false;
+  const frame = player.anim.frames[player.idx];
+  let cx = pos.x * dpr;
+  const cy = pos.y * dpr;
+  if (layout.flipped) cx = canvas.width - cx;
+  const ix = Math.floor((cx - layout.x) / layout.scale);
+  const iy = Math.floor((cy - layout.y) / layout.scale);
+  const { width, height } = frame.bitmap;
+  // 주변 1픽셀까지 확인해 가는 선이나 가장자리도 잡기 쉽게
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = ix + dx, y = iy + dy;
+      if (x >= 0 && y >= 0 && x < width && y < height && frame.alpha[y * width + x] > HIT_ALPHA) return true;
+    }
+  }
+  return false;
+}
+
+function updateInteractive() {
+  if (down) return; // 누르거나 드래그하는 동안은 바꾸지 않음
+  const hit = hitTest(cursor);
+  if (hit === interactive) return;
+  interactive = hit;
+  window.pet.setInteractive(hit);
 }
 
 let last = performance.now();
@@ -140,6 +193,7 @@ function endPointer(isCancel) {
   else if (!isCancel) window.pet.click();
   down = null;
   dragging = false;
+  updateInteractive();
 }
 canvas.addEventListener('pointerup', () => endPointer(false));
 canvas.addEventListener('pointercancel', () => endPointer(true));
@@ -152,6 +206,7 @@ window.addEventListener('contextmenu', (e) => {
 // ---------- 시작 ----------
 window.pet.onState((state) => { currentState = state; play(state); });
 window.pet.onFacing((f) => { facing = f; dirty = true; });
+window.pet.onCursor((pos) => { cursor = pos; updateInteractive(); });
 
 (async () => {
   const data = await window.pet.load();

@@ -57,6 +57,18 @@ function fitInto(pos, size, display) {
   };
 }
 
+// 창이 모니터와 정확히 같은 크기인지 (전체 화면 앱 판별용). 작업표시줄까지 덮어야 하므로 bounds와 비교.
+// "덮는지"가 아니라 "같은지"를 보는 이유: 최대화한 창은 보이지 않는 테두리 때문에
+// 모니터보다 몇 px 더 큼(100% 배율에서 사방 8px). 작업표시줄이 없는 보조 모니터에서는
+// 최대화 창도 모니터 전체를 덮으므로, 크기가 딱 맞는 경우만 전체 화면으로 봄
+function matchesDisplay(rect, bounds, tolerance = 2) {
+  const near = (a, b) => Math.abs(a - b) <= tolerance;
+  return near(rect.x, bounds.x)
+    && near(rect.y, bounds.y)
+    && near(rect.x + rect.width, bounds.x + bounds.width)
+    && near(rect.y + rect.height, bounds.y + bounds.height);
+}
+
 // 메뉴 표시용 이름: "2. DELL U2720Q (2560×1440, 150%, 주 모니터)"
 function displayMenuLabel(d, index, primaryId) {
   // size는 배율이 적용된 값(DIP)이라 실제 해상도로 되돌림. Windows가 DIP를 반올림하므로 내림으로 보정
@@ -67,4 +79,4 @@ function displayMenuLabel(d, index, primaryId) {
   return `${index + 1}. ${d.label || '모니터'} (${extra.join(', ')})`;
 }
 
-module.exports = { clamp, displayKey, resolveDisplay, isCenterInside, defaultPosition, fitInto, displayMenuLabel };
+module.exports = { clamp, displayKey, resolveDisplay, isCenterInside, defaultPosition, fitInto, matchesDisplay, displayMenuLabel };

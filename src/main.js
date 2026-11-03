@@ -2,16 +2,19 @@ const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen, ipc
 const path = require('path');
 const fs = require('fs');
 const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
+const { createFullscreenDetector } = require('./fullscreen');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 const TRAY_ICON = path.join(ASSETS, 'tray.png');
 const DEFAULT_PET_DIR = path.join(ASSETS, 'pets', 'default');
 const TOGGLE_SHORTCUT = 'CommandOrControl+Alt+P';
+const TOGGLE_LABEL = 'Ctrl+Alt+P';
 // 이동은 렌더러가 화면을 그릴 때마다(requestAnimationFrame) 보내는 'pet:frame' 신호에 맞춰 계산.
 // setInterval은 Windows 타이머 정밀도(약 15.6ms, 배터리 모드에서 더 불규칙)에 묶여 움직임이 끊겨 보였음.
 // 렌더러 신호가 끊기면(창이 가려져 그리기가 멈춘 경우 등) 아래 주기로 대신 계산
 const FALLBACK_TICK_MS = 100;
 const FRAME_TIMEOUT_MS = 200;
+const FULLSCREEN_CHECK_MS = 1000;
 
 // 상태 이름 = 이미지 파일 이름. loop=false 인 상태는 1회 재생 후 idle로 돌아감
 const STATE_DEFAULTS = {
@@ -28,7 +31,19 @@ let win = null;
 let tray = null;
 let pet = null;
 let quitting = false;
-let settings = { display: null }; // display: 표시할 모니터 식별 정보. null 이면 자동(지금 있는 모니터)
+let settings = {
+  display: null,           // 표시할 모니터 식별 정보. null 이면 자동(지금 있는 모니터)
+  hideOnFullscreen: true,  // 전체 화면 앱이 같은 모니터에 있으면 숨김
+};
+
+// 보이기/숨기기: 사용자가 숨긴 것과 전체 화면 때문에 자동으로 숨긴 것을 따로 관리
+const visibility = {
+  userHidden: false,
+  autoHidden: false,
+  // 전체 화면 중에 사용자가 직접 다시 보이게 했으면, 그 전체 화면이 끝날 때까지 자동 숨김 안 함
+  autoHideSuppressed: false,
+};
+let fullscreenDisplayId = null; // 전체 화면 감지 함수. Windows가 아니거나 감지를 못 쓰면 null
 
 // ---------- 로그 (%APPDATA%\desktop-pet\main.log) ----------
 function log(...args) {
@@ -175,6 +190,7 @@ const behavior = {
   lastFrameAt: 0,
   dragging: false,
   dragOffset: { x: 0, y: 0 },
+  cursorInside: false,
 };
 
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -227,12 +243,24 @@ function followCursor() {
   moveWindow(behavior.x, behavior.y);
 }
 
+// 커서가 창 위에 있으면 창 기준 좌표를 렌더러에 보냄 (투명 영역 클릭 통과 판정용).
+// 창이 걸어서 커서 아래로 들어온 경우처럼 마우스가 안 움직여도 판정해야 해서 매 프레임 확인
+function updateCursor() {
+  const c = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  const rel = { x: c.x - b.x, y: c.y - b.y };
+  const inside = rel.x >= 0 && rel.y >= 0 && rel.x < b.width && rel.y < b.height;
+  if (inside || behavior.cursorInside) sendToPet('pet:cursor', inside ? rel : null);
+  behavior.cursorInside = inside;
+}
+
 function tick() {
   const now = Date.now();
   const dt = Math.min(0.1, (now - behavior.lastTick) / 1000);
   behavior.lastTick = now;
   if (!win || win.isDestroyed() || !win.isVisible()) return;
   if (behavior.dragging) { followCursor(); return; }
+  updateCursor();
 
   // 잠자기: OS 기준으로 키보드·마우스 입력이 없던 시간
   const idleSec = powerMonitor.getSystemIdleTime();
@@ -300,6 +328,12 @@ function registerIpc() {
     tick();
   });
 
+  // 투명 영역 클릭 통과: 렌더러가 커서 아래 픽셀이 불투명한지 판정해서 알려줌.
+  // forward: true 이면 클릭은 통과시키면서 마우스 이동 이벤트는 계속 받음
+  ipcMain.on('pet:set-interactive', (_e, interactive) => {
+    if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!interactive, { forward: true });
+  });
+
   // 드래그 시작: 이후 프레임마다 tick()에서 커서를 따라감
   ipcMain.on('pet:drag-start', () => {
     if (!win || win.isDestroyed()) return;
@@ -350,6 +384,7 @@ function createWindow() {
   // 'screen-saver' 레벨이어야 다른 항상 위 창(작업표시줄 등)보다도 위에 뜸
   win.setAlwaysOnTop(true, 'screen-saver');
   win.loadFile(path.join(__dirname, 'index.html'));
+  win.setIgnoreMouseEvents(true, { forward: true }); // 시작은 클릭 통과. 커서가 이미지 위에 오면 렌더러가 해제
   syncPositionFromWindow();
 
   // Alt+F4 등으로 창을 닫으면 앱 전체를 종료 (창만 닫히고 프로세스가 남는 것 방지)
@@ -367,16 +402,64 @@ function createWindow() {
   });
 }
 
-function toggleWindow() {
+function applyVisibility() {
   if (!win || win.isDestroyed()) return;
-  if (win.isVisible()) {
-    win.hide();
-  } else {
+  const shouldShow = !visibility.userHidden && !visibility.autoHidden;
+  if (shouldShow && !win.isVisible()) {
     win.showInactive(); // 다른 창의 포커스를 뺏지 않고 표시
     syncPositionFromWindow();
     behavior.lastTick = Date.now();
+  } else if (!shouldShow && win.isVisible()) {
+    win.hide();
   }
   updateTrayMenu();
+}
+
+function toggleWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isVisible()) {
+    visibility.userHidden = true;
+  } else {
+    visibility.userHidden = false;
+    if (visibility.autoHidden) { // 전체 화면 중이라도 사용자가 원하면 보여줌
+      visibility.autoHidden = false;
+      visibility.autoHideSuppressed = true;
+    }
+  }
+  applyVisibility();
+}
+
+// ---------- 전체 화면 앱 감지 ----------
+function checkFullscreen() {
+  if (!fullscreenDisplayId || !win || win.isDestroyed()) return;
+  const fsId = settings.hideOnFullscreen ? fullscreenDisplayId() : null;
+  const active = activeDisplay();
+  const covered = fsId !== null && fsId === active.id; // 캐릭터가 있는 모니터만 확인
+  if (fsId !== null && !covered && fsId !== checkFullscreen.lastOther) log(`fullscreen on other display ${fsId} (pet on ${active.id})`);
+  checkFullscreen.lastOther = covered ? null : fsId;
+  if (!covered) visibility.autoHideSuppressed = false;
+  const autoHidden = covered && !visibility.autoHideSuppressed;
+  if (autoHidden !== visibility.autoHidden) {
+    log(autoHidden ? 'fullscreen app detected -> hide' : 'fullscreen app gone -> show');
+    visibility.autoHidden = autoHidden;
+    applyVisibility();
+  }
+}
+
+// ---------- 자동 실행 ----------
+// 빌드된 exe에서만 의미가 있음 (npm start로 실행하면 electron.exe가 등록되므로 비활성화)
+function autoStartMenuItem() {
+  if (!app.isPackaged) return { label: 'Windows 시작 시 자동 실행 (빌드한 exe에서만)', enabled: false };
+  return {
+    label: 'Windows 시작 시 자동 실행',
+    type: 'checkbox',
+    checked: app.getLoginItemSettings().openAtLogin,
+    click: (item) => {
+      app.setLoginItemSettings({ openAtLogin: item.checked });
+      log('auto start:', item.checked);
+      updateTrayMenu();
+    },
+  };
 }
 
 // ---------- 메뉴 (트레이 우클릭, 이미지 우클릭 공용) ----------
@@ -407,8 +490,21 @@ function buildDisplayMenu() {
 function buildMenu() {
   const visible = win && !win.isDestroyed() && win.isVisible();
   return Menu.buildFromTemplate([
-    { label: visible ? `숨기기 (${TOGGLE_SHORTCUT})` : `보이기 (${TOGGLE_SHORTCUT})`, click: toggleWindow },
+    { label: visible ? `숨기기 (${TOGGLE_LABEL})` : `보이기 (${TOGGLE_LABEL})`, click: toggleWindow },
     { label: '표시할 모니터', submenu: buildDisplayMenu() },
+    {
+      label: '전체 화면 앱 실행 중에는 숨기기',
+      type: 'checkbox',
+      checked: settings.hideOnFullscreen,
+      enabled: !!fullscreenDisplayId,
+      click: (item) => {
+        settings.hideOnFullscreen = item.checked;
+        saveSettings();
+        checkFullscreen();
+        updateTrayMenu();
+      },
+    },
+    autoStartMenuItem(),
     { type: 'separator' },
     { label: '종료', click: quitApp },
   ]);
@@ -472,6 +568,9 @@ if (!app.requestSingleInstanceLock()) {
     setInterval(() => {
       if (Date.now() - behavior.lastFrameAt > FRAME_TIMEOUT_MS) tick();
     }, FALLBACK_TICK_MS);
+    fullscreenDisplayId = createFullscreenDetector(log);
+    if (fullscreenDisplayId) setInterval(checkFullscreen, FULLSCREEN_CHECK_MS);
+    updateTrayMenu();
     if (!globalShortcut.register(TOGGLE_SHORTCUT, toggleWindow)) {
       log(`shortcut register failed: ${TOGGLE_SHORTCUT}`);
     }

@@ -1,6 +1,6 @@
 // node test/displays.test.js
 const assert = require('assert');
-const { displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('../src/displays');
+const { displayKey, resolveDisplay, fitInto, matchesDisplay, displayMenuLabel } = require('../src/displays');
 
 const mk = (id, label, x, y, w, h, scale = 1, taskbar = 48) => ({
   id, label, scaleFactor: scale,
@@ -54,5 +54,20 @@ t('위치 정보 없음 → 기본 위치', () => assert.deepStrictEqual(fitInto
 t('메뉴 이름', () => {
   assert.strictEqual(displayMenuLabel(main, 0, 1), '1. LG 27GL850 (1920×1080, 100%, 주 모니터)');
   assert.strictEqual(displayMenuLabel(left, 1, 1), '2. DELL U2720Q (2560×1440, 150%)'); // 1707 * 1.5 = 2560.5 → 2560
+});
+// 아래 값은 실제 Windows 로그(Chrome, S27R65 모니터 x=1920)에서 가져옴
+const s27 = mk(4, 'S27R65', 1920, 0, 1920, 1080);
+t('전체 화면: 모니터와 크기가 같으면 true (최대화 상태에서 F11/유튜브 전체 화면 포함)', () => {
+  assert.strictEqual(matchesDisplay({ x: 1920, y: 0, width: 1920, height: 1080 }, s27.bounds), true);
+  assert.strictEqual(matchesDisplay({ x: -1707, y: 0, width: 1707, height: 960 }, left.bounds), true);
+  assert.strictEqual(matchesDisplay({ x: -1, y: -1, width: 1922, height: 1082 }, main.bounds), true); // 1px 오차 허용
+});
+t('전체 화면: 최대화 창은 false (작업표시줄이 없는 모니터에서 테두리 8px 바깥까지 덮어도)', () => {
+  assert.strictEqual(matchesDisplay({ x: 1912, y: -8, width: 1936, height: 1096 }, s27.bounds), false);
+  assert.strictEqual(matchesDisplay({ x: -8, y: -8, width: 1936, height: 1048 }, main.bounds), false); // 작업표시줄 있는 모니터
+});
+t('전체 화면: 일부만 덮으면 false', () => {
+  assert.strictEqual(matchesDisplay({ x: 22, y: 58, width: 1760, height: 939 }, main.bounds), false);
+  assert.strictEqual(matchesDisplay({ x: 3280, y: 749, width: 128, height: 128 }, s27.bounds), false); // 곰 창 자신
 });
 console.log(`\n${n} passed`);
