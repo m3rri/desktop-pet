@@ -4,7 +4,7 @@
 const canvas = document.getElementById('pet');
 const ctx = canvas.getContext('2d');
 
-const anims = {};        // 상태 이름 -> { loop, frames: [{ bitmap, duration(ms) }] }
+const anims = {};        // 상태 이름 -> { loop, variants: [{ file, frames: [{ bitmap, duration(ms), alpha }] }], last }
 let size = 128;
 let baseFacing = 'right';
 let facing = 'right';
@@ -63,12 +63,21 @@ async function decodeFrames(bytes, mime) {
 }
 
 // ---------- 재생 ----------
+// 이미지가 여러 개인 상태는 무작위로 하나 고름. 같은 이미지가 연달아 나오지 않게 직전 것은 제외
+function pickVariant(state) {
+  const n = state.variants.length;
+  let i = Math.floor(Math.random() * n);
+  if (n > 1 && i === state.last) i = (i + 1 + Math.floor(Math.random() * (n - 1))) % n;
+  state.last = i;
+  return state.variants[i];
+}
+
 function play(name) {
-  const anim = anims[name] || anims.idle; // 이미지가 없는 상태는 idle로 대체
-  if (!anim) return;
+  const state = anims[name] || anims.idle; // 이미지가 없는 상태는 idle로 대체
+  if (!state) return;
   player = {
     name,
-    anim,
+    anim: pickVariant(state),
     loop: anims[name] ? anims[name].loop : !ONE_SHOT_STATES.has(name),
     idx: 0,
     elapsed: 0,
@@ -216,8 +225,17 @@ window.pet.onCursor((pos) => { cursor = pos; updateInteractive(); });
   currentState = data.state;
 
   await Promise.all(Object.entries(data.states).map(async ([name, s]) => {
-    anims[name] = { loop: s.loop, frames: await decodeImage(s.data, s.mime) };
+    const variants = [];
+    for (const v of s.variants) {
+      try {
+        variants.push({ file: v.file, frames: await decodeImage(v.data, v.mime) });
+      } catch (e) {
+        console.warn('이미지를 읽지 못해 건너뜀:', v.file, e); // 깨진 파일 하나 때문에 상태 전체가 빠지지 않게
+      }
+    }
+    if (variants.length) anims[name] = { loop: s.loop, variants, last: -1 };
   }));
+  if (!anims.idle) console.error('idle 이미지를 하나도 읽지 못함');
 
   play(currentState); // 불러오는 동안 바뀐 상태 반영
   requestAnimationFrame(loop);

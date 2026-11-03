@@ -1,0 +1,7 @@
+{
+  "name": "검은 고양이",
+  "size": 128,
+  "speed": 80,
+  "facing": "right",
+  "sleepAfterSec": 600
+}

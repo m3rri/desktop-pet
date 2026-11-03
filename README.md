@@ -44,7 +44,7 @@ npm run package:win
 |---|---|---|
 | idle | 기본 | 반복 |
 | walk | 2~6초 쉬다가 현재 모니터 안의 근처 지점으로 이동 | 반복 |
-| click | 클릭했을 때 | 1회 재생 후 idle |
+| click | 클릭했을 때 | 1회 재생 후 idle. 이미지가 여러 개면 무작위 |
 | drag | 드래그하는 동안 | 반복 |
 | sleep | 키보드·마우스 입력이 `sleepAfterSec`초 동안 없을 때. 입력이 생기면 깨어남 | 반복 |
 
@@ -79,16 +79,22 @@ npm run package:win
 %APPDATA%\desktop-pet\pet\
 ├── idle.png      필수. 이미지가 없는 상태는 이 이미지로 대체
 ├── walk.gif
-├── click.webp
+├── click_1.gif   ┐
+├── click_2.gif   │ 같은 상태에 여러 개를 두면
+├── click_3.webp  │ 그 상태가 될 때마다 하나를 무작위로 재생
+├── click_4.gif   │ (직전과 같은 이미지는 연달아 나오지 않음)
+├── click_5.gif   ┘
 ├── sleep.png
 ├── drag.png
 └── pet.json      선택
 ```
 
-- 파일 이름 = 상태 이름. 확장자는 `.png`, `.apng`, `.gif`, `.webp` 중 아무거나
+- 파일 이름 = `상태이름.확장자` 또는 `상태이름_아무거나.확장자` (예: `click.gif`, `click_2.gif`, `click_jump.webp`). 확장자는 `.png`, `.apng`, `.gif`, `.webp` 중 아무거나
+- 어느 상태든 여러 개 둘 수 있음. 반복 상태(walk, idle 등)는 그 상태에 들어갈 때 하나를 골라 끝날 때까지 유지
+- 읽지 못한 파일은 건너뛰고 나머지로 동작
 - 정지 이미지와 애니메이션(GIF, APNG, 애니메이션 WebP) 모두 가능. 투명 배경 권장
 - 이미지는 오른쪽을 바라보게 그리면 왼쪽으로 걸을 때 자동으로 뒤집힘 (`facing`으로 변경 가능)
-- 상태마다 이미지 크기가 달라도 하단 중앙에 맞춰 그리므로 발 위치가 고정됨
+- 상태마다 이미지 크기가 달라도 하단 중앙에 맞춰 그리므로 발 위치가 고정됨. 그래도 캐릭터 위치가 튀지 않으려면 모든 이미지를 같은 캔버스 크기, 같은 위치로 그리는 것을 권장
 
 `pet.json` (모든 항목 선택):
 
@@ -113,6 +119,9 @@ npm run package:win
 
 기본 캐릭터 이미지는 `npm run make-sample-pet`으로 다시 만들 수 있습니다 (`scripts/make-sample-pet.js`).
 
+같은 그림체의 검은 고양이도 들어 있습니다 (`assets/pets/cat`, 클릭 이미지 5개: 점프·흔들기·꼬리·갸웃·하트).
+쓰려면 이 폴더의 파일을 `%APPDATA%\desktop-pet\pet`에 복사하세요. 다시 만들려면 `npm run make-cat-pet`.
+
 ## 파일 위치
 
 | 파일 | 위치 |
@@ -131,9 +140,10 @@ src/fullscreen.js 전체 화면 앱 감지 (Windows API 호출)
 src/preload.js    렌더러에 노출하는 API (window.pet)
 src/renderer.js   이미지를 프레임으로 풀어(ImageDecoder) canvas에 재생, 클릭·드래그 감지
 src/index.html    canvas
-assets/pets/default/  기본 캐릭터
+assets/pets/default/  기본 캐릭터 (곰)
+assets/pets/cat/      검은 고양이
 assets/tray.png   트레이 아이콘
-scripts/          기본 캐릭터 이미지 생성 스크립트
+scripts/          캐릭터 이미지 생성 스크립트 (곰, 고양이, 공용 PNG/APNG/GIF 인코더)
 test/             모니터 식별·배치 테스트 (npm test)
 docs/plan.md      단계별 계획
 ```
@@ -174,6 +184,11 @@ docs/plan.md      단계별 계획
 - [x] 이미지의 투명 영역은 클릭이 뒤로 통과
 - [x] 전체 화면 앱 실행 중 자동 숨김 (캐릭터가 있는 모니터 기준, 메뉴에서 끄기 가능)
 - [x] Windows 시작 시 자동 실행 (메뉴)
+- [x] Windows에서 확인
+
+캐릭터
+- [x] 상태별 이미지 여러 개, 무작위 재생 (기본 곰에 클릭 이미지 2개: 점프, 흔들기)
+- [x] 같은 그림체의 검은 고양이 캐릭터 (클릭 이미지 5개)
 - [x] Windows에서 확인
 
 4-2

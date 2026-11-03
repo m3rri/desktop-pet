@@ -1,7 +1,8 @@
 // 기본 캐릭터(곰)의 상태별 이미지를 만든다. 외부 이미지 편집기 없이 코드로 그림.
 //   idle.png  : 정지 PNG
 //   walk.png  : APNG (반복)
-//   click.gif : GIF  (1회 재생)
+//   click.gif   : GIF  (1회 재생) - 점프
+//   click_2.png : APNG (1회 재생) - 좌우로 흔들기. 클릭할 때마다 click 이미지 중 하나를 무작위로 재생
 //   sleep.png : APNG (반복)
 //   drag.png  : 정지 PNG
 // 세 가지 형식(PNG, APNG, GIF)을 섞은 이유: 앱이 모든 형식을 불러오는지 확인하기 위해.
@@ -9,10 +10,7 @@
 // 사용법: node scripts/make-sample-pet.js [출력 폴더]
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
-const { GIFEncoder, quantize, applyPalette } = require('gifenc');
-
-const W = 128, H = 128;
+const { W, H, encodePNG, encodeAPNG, encodeGIF } = require('./image-encode');
 const OUT = process.argv[2] || path.join(__dirname, '..', 'assets', 'pets', 'default');
 
 // ---------- 래스터 ----------
@@ -48,9 +46,9 @@ function line(px, x0, y0, x1, y1, r, color) {
 
 // ---------- 곰 ----------
 // 좌표는 하단 중앙(64, 118)을 원점으로 한 값. k=0.8로 줄여 점프·Z가 들어갈 위쪽 여백을 확보.
-function drawBear(px, { dy = 0, sx = 1, sy = 1, eyes = 'open', look = 0, mouth = 'small', feet = null } = {}) {
+function drawBear(px, { dx = 0, dy = 0, sx = 1, sy = 1, eyes = 'open', look = 0, mouth = 'small', feet = null } = {}) {
   const k = 0.8;
-  const X = (lx) => 64 + k * sx * lx, Y = (ly) => 118 + dy + k * sy * ly;
+  const X = (lx) => 64 + dx + k * sx * lx, Y = (ly) => 118 + dy + k * sy * ly;
   const E = (lx, ly, rx, ry, c) => ellipse(px, X(lx), Y(ly), k * sx * rx, k * sy * ry, c);
 
   if (feet) { // 걷기: 발을 번갈아 들어 올림
@@ -87,66 +85,6 @@ function drawZ(px, x, y, s, alpha = 1) {
 
 function frame(draw) { const px = newCanvas(); draw(px); return px; }
 
-// ---------- 인코딩 ----------
-const crcTable = Array.from({ length: 256 }, (_, n) => {
-  let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0;
-});
-const crc32 = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-function chunk(type, data) {
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
-  return Buffer.concat([len, td, crc]);
-}
-function idat(px) {
-  const raw = Buffer.alloc((W * 4 + 1) * H);
-  for (let y = 0; y < H; y++) px.copy(raw, y * (W * 4 + 1) + 1, y * W * 4, (y + 1) * W * 4);
-  return zlib.deflateSync(raw);
-}
-function ihdr() {
-  const b = Buffer.alloc(13); b.writeUInt32BE(W, 0); b.writeUInt32BE(H, 4); b[8] = 8; b[9] = 6; return b;
-}
-const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-
-function encodePNG(px) {
-  return Buffer.concat([SIG, chunk('IHDR', ihdr()), chunk('IDAT', idat(px)), chunk('IEND', Buffer.alloc(0))]);
-}
-
-// APNG: acTL(애니메이션 정보) + 프레임마다 fcTL(위치·지연) + IDAT/fdAT(이미지)
-function encodeAPNG(frames, delayMs) {
-  const parts = [SIG, chunk('IHDR', ihdr())];
-  const actl = Buffer.alloc(8); actl.writeUInt32BE(frames.length, 0); actl.writeUInt32BE(0, 4); // 0 = 무한 반복
-  parts.push(chunk('acTL', actl));
-  let seq = 0;
-  frames.forEach((px, i) => {
-    const fctl = Buffer.alloc(26);
-    fctl.writeUInt32BE(seq++, 0); fctl.writeUInt32BE(W, 4); fctl.writeUInt32BE(H, 8);
-    fctl.writeUInt32BE(0, 12); fctl.writeUInt32BE(0, 16);
-    fctl.writeUInt16BE(delayMs, 20); fctl.writeUInt16BE(1000, 22);
-    fctl[24] = 1; // dispose: 다음 프레임 전에 지움
-    fctl[25] = 0; // blend: 덮어쓰기
-    parts.push(chunk('fcTL', fctl));
-    const data = idat(px);
-    if (i === 0) parts.push(chunk('IDAT', data));
-    else { const s = Buffer.alloc(4); s.writeUInt32BE(seq++); parts.push(chunk('fdAT', Buffer.concat([s, data]))); }
-  });
-  parts.push(chunk('IEND', Buffer.alloc(0)));
-  return Buffer.concat(parts);
-}
-
-function encodeGIF(frames, delayMs) {
-  const gif = GIFEncoder();
-  for (const px of frames) {
-    const rgba = new Uint8Array(px);
-    const palette = quantize(rgba, 256, { format: 'rgba4444', oneBitAlpha: true });
-    const index = applyPalette(rgba, palette, 'rgba4444');
-    const transparentIndex = Math.max(0, palette.findIndex((c) => c[3] === 0));
-    gif.writeFrame(index, W, H, { palette, delay: delayMs, transparent: true, transparentIndex, dispose: 2 });
-  }
-  gif.finish();
-  return Buffer.from(gif.bytes());
-}
-
 // ---------- 상태별 이미지 ----------
 fs.mkdirSync(OUT, { recursive: true });
 const write = (name, buf) => { fs.writeFileSync(path.join(OUT, name), buf); console.log(name, buf.length, 'bytes'); };
@@ -169,6 +107,11 @@ write('click.gif', encodeGIF([
   { dy: 4, sx: 1.1, sy: 0.88 },
   { dy: 0 },
 ].map((o) => frame((px) => drawBear(px, o))), 70));
+
+// 클릭(두 번째): 좌우로 몸을 흔들며 웃기 (1회 재생)
+// GIF가 아닌 APNG의 1회 재생: 반복 여부는 파일이 아니라 상태(click)가 정하므로 파일은 무한 반복으로 저장해도 됨
+write('click_2.png', encodeAPNG([0, -7, 7, -7, 7, -4, 4, 0].map((dx, i) =>
+  frame((px) => drawBear(px, { dx, eyes: i === 0 || i === 7 ? 'open' : 'happy', mouth: i === 0 || i === 7 ? 'small' : 'open' }))), 80));
 
 // 잠자기: 눈 감고 숨쉬기 + Z가 떠오름
 write('sleep.png', encodeAPNG([0, 1, 2, 3].map((i) => frame((px) => {

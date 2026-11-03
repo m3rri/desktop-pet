@@ -57,17 +57,21 @@ function petDirCandidates() {
   return [path.join(app.getPath('userData'), 'pet'), DEFAULT_PET_DIR];
 }
 
-function findStateFile(dir, name) {
-  for (const ext of Object.keys(IMAGE_TYPES)) {
-    const file = path.join(dir, name + ext);
-    if (fs.existsSync(file)) return file;
-  }
-  return null;
+// 상태 하나에 이미지를 여러 개 둘 수 있음: click.gif, click_2.gif, click_jump.webp ...
+// "상태이름.확장자" 또는 "상태이름_아무거나.확장자". 그 상태가 될 때마다 하나를 무작위로 고름
+function findStateFiles(dir, name) {
+  let entries;
+  try { entries = fs.readdirSync(dir); } catch (_) { return []; }
+  const pattern = new RegExp(`^${name}(_[^.]+)?(${Object.keys(IMAGE_TYPES).map((e) => '\\' + e).join('|')})$`, 'i');
+  return entries
+    .filter((f) => pattern.test(f))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) // click_2 < click_10
+    .map((f) => path.join(dir, f));
 }
 
 function loadPet() {
   for (const dir of petDirCandidates()) {
-    if (!findStateFile(dir, 'idle')) continue;
+    if (findStateFiles(dir, 'idle').length === 0) continue;
 
     let conf = {};
     try {
@@ -78,16 +82,19 @@ function loadPet() {
 
     const states = {};
     for (const [name, def] of Object.entries(STATE_DEFAULTS)) {
-      const file = findStateFile(dir, name);
-      if (!file) continue; // 없는 상태는 렌더러에서 idle 이미지로 대체
+      const files = findStateFiles(dir, name);
+      if (files.length === 0) continue; // 없는 상태는 렌더러에서 idle 이미지로 대체
       states[name] = {
         ...def,
         ...((conf.states && conf.states[name]) || {}),
-        mime: IMAGE_TYPES[path.extname(file).toLowerCase()],
-        data: fs.readFileSync(file),
+        variants: files.map((file) => ({
+          file: path.basename(file),
+          mime: IMAGE_TYPES[path.extname(file).toLowerCase()],
+          data: fs.readFileSync(file),
+        })),
       };
     }
-    log('pet loaded:', dir, `[${Object.keys(states).join(', ')}]`);
+    log('pet loaded:', dir, Object.entries(states).map(([n, s]) => `${n}(${s.variants.map((v) => v.file).join(',')})`).join(' '));
     return {
       dir,
       name: conf.name || path.basename(dir),
@@ -307,7 +314,10 @@ function registerIpc() {
     facing: behavior.facing,
     state: behavior.state,
     states: Object.fromEntries(Object.entries(pet.states)
-      .map(([name, s]) => [name, { loop: s.loop, mime: s.mime, data: s.data }])),
+      .map(([name, s]) => [name, {
+        loop: s.loop,
+        variants: s.variants.map((v) => ({ file: v.file, mime: v.mime, data: v.data })),
+      }])),
   }));
 
   ipcMain.on('pet:click', () => {
