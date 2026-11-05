@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'">
+  <title>Desktop Pet 설정</title>
+  <style>
+    :root {
+      --bg: #f6f7fb; --card: #ffffff; --text: #1f2330; --muted: #6b7183; --line: #e3e6ee;
+      --accent: #4b6bfb; --accent-soft: #e8ecff; --danger: #d6455d; --thumb-bg: #eef1f7;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1e25; --card: #262932; --text: #e8eaf0; --muted: #9aa0b2; --line: #363a46;
+        --accent: #7b93ff; --accent-soft: #2f3756; --danger: #ff7a8e; --thumb-bg: #31343f;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px 18px 28px; background: var(--bg); color: var(--text);
+      font: 13.5px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    }
+    h2 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 4px 6px; letter-spacing: .02em; }
+    h2:first-child { margin-top: 2px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 4px 14px; }
+    .row { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 6px 0; border-top: 1px solid var(--line); }
+    .row:first-child { border-top: 0; }
+    .row > .label { flex: 1; min-width: 0; }
+    .row .hint { display: block; color: var(--muted); font-size: 12px; }
+    .row output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 150px; accent-color: var(--accent); }
+    input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+    select, button {
+      font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+      border-radius: 7px; padding: 5px 10px; max-width: 230px;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.link { border: 0; background: none; color: var(--accent); padding: 2px 4px; font-size: 12px; }
+    button.link[hidden] { display: none; }
+    button:disabled { opacity: .5; cursor: default; border-color: var(--line); }
+
+    .pets { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; padding: 12px 0; }
+    .pet {
+      position: relative; border: 2px solid transparent; border-radius: 10px; background: var(--thumb-bg);
+      padding: 8px 6px 6px; text-align: center; cursor: pointer; user-select: none;
+    }
+    .pet.selected { border-color: var(--accent); background: var(--accent-soft); }
+    .pet.missing { opacity: .55; cursor: default; }
+    .pet img { width: 72px; height: 72px; object-fit: contain; display: block; margin: 0 auto 4px; }
+    .pet .name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pet .tag { font-size: 11px; color: var(--muted); }
+    .pet .remove {
+      position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
+      font-size: 13px; line-height: 1; color: var(--muted);
+    }
+    .pet.add { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--accent); border: 2px dashed var(--line); background: none; min-height: 118px; }
+    .pet.add .plus { font-size: 26px; line-height: 1; }
+    .pet-actions { display: flex; gap: 8px; padding: 0 0 12px; }
+
+    .shortcut { min-width: 130px; text-align: center; font-family: inherit; }
+    .shortcut.recording { border-color: var(--accent); color: var(--accent); }
+    footer { margin-top: 18px; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 0 4px; }
+
+    #toast {
+      position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: calc(100% - 32px);
+      background: var(--danger); color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 13px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <h2>캐릭터</h2>
+  <div class="card">
+    <div class="pets" id="pets"></div>
+    <div class="pet-actions">
+      <button id="reload" title="폴더의 이미지를 바꿨을 때">다시 불러오기</button>
+      <button id="open-pet-folder">폴더 열기</button>
+    </div>
+  </div>
+
+  <h2>움직임</h2>
+  <div class="card">
+    <div class="row">
+      <div class="label">크기 <button class="link" id="size-reset" hidden>기본값으로</button></div>
+      <input type="range" id="size" min="64" max="256" step="8">
+      <output id="size-out"></output>
+    </div>
+    <div class="row">
+      <div class="label">이동 속도<span class="hint">0이면 제자리에 있습니다</span> <button class="link" id="speed-reset" hidden>기본값으로</button></div>
+      <input type="range" id="speed" min="0" max="200" step="10">
+      <output id="speed-out"></output>
+    </div>
+    <div class="row">
+      <div class="label">잠들기까지<span class="hint">키보드·마우스 입력이 없을 때</span></div>
+      <select id="sleep"></select>
+    </div>
+  </div>
+
+  <h2>화면</h2>
+  <div class="card">
+    <div class="row">
+      <div class="label">표시할 모니터</div>
+      <select id="display"></select>
+    </div>
+    <div class="row">
+      <div class="label">전체 화면 앱 실행 중에는 숨기기<span class="hint" id="fullscreen-hint">게임, 영상, 브라우저 F11 등</span></div>
+      <input type="checkbox" id="fullscreen">
+    </div>
+  </div>
+
+  <h2>기타</h2>
+  <div class="card">
+    <div class="row">
+      <div class="label">숨기기/보이기 단축키<span class="hint" id="shortcut-hint">누른 뒤 원하는 키 조합을 입력하세요</span></div>
+      <button class="shortcut" id="shortcut"></button>
+    </div>
+    <div class="row">
+      <div class="label">Windows 시작 시 자동 실행<span class="hint" id="autostart-hint"></span></div>
+      <input type="checkbox" id="autostart">
+    </div>
+  </div>
+
+  <footer>
+    <span id="version"></span>
+    <button class="link" id="open-userdata">설정·로그 폴더 열기</button>
+  </footer>
+  <div id="toast"></div>
+  <script src="settings.js"></script>
+</body>
+</html>

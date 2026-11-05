@@ -4,7 +4,7 @@
 const canvas = document.getElementById('pet');
 const ctx = canvas.getContext('2d');
 
-const anims = {};        // 상태 이름 -> { loop, variants: [{ file, frames: [{ bitmap, duration(ms), alpha }] }], last }
+let anims = {};          // 상태 이름 -> { loop, variants: [{ file, frames: [{ bitmap, duration(ms), alpha }] }], last }
 let size = 128;
 let baseFacing = 'right';
 let facing = 'right';
@@ -212,18 +212,35 @@ window.addEventListener('contextmenu', (e) => {
   window.pet.menu();
 });
 
-// ---------- 시작 ----------
+// ---------- 트레이 아이콘 ----------
+// 대표 이미지 첫 프레임을 16px·32px PNG로 만들어 메인 프로세스에 보냄 (원본이 GIF·WebP여도 됨)
+function sendTrayIcon() {
+  const bmp = anims.idle && anims.idle.variants[0].frames[0].bitmap;
+  if (!bmp) return;
+  const make = (px) => {
+    const c = document.createElement('canvas');
+    c.width = px; c.height = px;
+    const g = c.getContext('2d');
+    const s = Math.min(px / bmp.width, px / bmp.height);
+    g.drawImage(bmp, (px - bmp.width * s) / 2, (px - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
+    return c.toDataURL('image/png');
+  };
+  window.pet.setTrayIcon({ x1: make(16), x2: make(32) });
+}
+
+// ---------- 시작 / 캐릭터 교체 ----------
 window.pet.onState((state) => { currentState = state; play(state); });
 window.pet.onFacing((f) => { facing = f; dirty = true; });
 window.pet.onCursor((pos) => { cursor = pos; updateInteractive(); });
+window.pet.onResize((s) => { size = s; dpr = 0; dirty = true; }); // dpr=0 → 다음 프레임에 canvas 해상도 다시 맞춤
+window.pet.onReload(() => loadPet());
 
-(async () => {
+let loadSeq = 0;
+let started = false;
+async function loadPet() {
+  const seq = ++loadSeq; // 연달아 바꾸면 마지막 요청만 반영
   const data = await window.pet.load();
-  size = data.size;
-  baseFacing = data.baseFacing;
-  facing = data.facing;
-  currentState = data.state;
-
+  const next = {};
   await Promise.all(Object.entries(data.states).map(async ([name, s]) => {
     const variants = [];
     for (const v of s.variants) {
@@ -233,10 +250,21 @@ window.pet.onCursor((pos) => { cursor = pos; updateInteractive(); });
         console.warn('이미지를 읽지 못해 건너뜀:', v.file, e); // 깨진 파일 하나 때문에 상태 전체가 빠지지 않게
       }
     }
-    if (variants.length) anims[name] = { loop: s.loop, variants, last: -1 };
+    if (variants.length) next[name] = { loop: s.loop, variants, last: -1 };
   }));
-  if (!anims.idle) console.error('idle 이미지를 하나도 읽지 못함');
+  if (seq !== loadSeq) return;
+  if (!next.idle) { console.error('idle 이미지를 하나도 읽지 못함'); return; }
 
-  play(currentState); // 불러오는 동안 바뀐 상태 반영
-  requestAnimationFrame(loop);
-})();
+  // 다 읽은 뒤에 한 번에 교체 (읽는 동안에는 이전 캐릭터를 계속 보여줌)
+  anims = next;
+  size = data.size;
+  baseFacing = data.baseFacing;
+  facing = data.facing;
+  currentState = data.state;
+  dpr = 0;
+  play(currentState);
+  sendTrayIcon();
+  if (!started) { started = true; requestAnimationFrame(loop); }
+}
+
+loadPet();

@@ -1,14 +1,15 @@
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen, ipcMain, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, screen, ipcMain, powerMonitor, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
 const { createFullscreenDetector } = require('./fullscreen');
+const { listPets, choosePet, effectiveValues, loadPetFromDir, previewOf, hasIdle } = require('./pets');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 const TRAY_ICON = path.join(ASSETS, 'tray.png');
-const DEFAULT_PET_DIR = path.join(ASSETS, 'pets', 'default');
-const TOGGLE_SHORTCUT = 'CommandOrControl+Alt+P';
-const TOGGLE_LABEL = 'Ctrl+Alt+P';
+const BUILTIN_PETS = path.join(ASSETS, 'pets');
+const DEFAULT_SHORTCUT = 'CommandOrControl+Alt+P';
+const shortcutLabel = (acc) => acc.replace('CommandOrControl', 'Ctrl');
 // 이동은 렌더러가 화면을 그릴 때마다(requestAnimationFrame) 보내는 'pet:frame' 신호에 맞춰 계산.
 // setInterval은 Windows 타이머 정밀도(약 15.6ms, 배터리 모드에서 더 불규칙)에 묶여 움직임이 끊겨 보였음.
 // 렌더러 신호가 끊기면(창이 가려져 그리기가 멈춘 경우 등) 아래 주기로 대신 계산
@@ -16,24 +17,20 @@ const FALLBACK_TICK_MS = 100;
 const FRAME_TIMEOUT_MS = 200;
 const FULLSCREEN_CHECK_MS = 1000;
 
-// 상태 이름 = 이미지 파일 이름. loop=false 인 상태는 1회 재생 후 idle로 돌아감
-const STATE_DEFAULTS = {
-  idle: { loop: true },
-  walk: { loop: true },
-  click: { loop: false },
-  sleep: { loop: true },
-  drag: { loop: true },
-};
-// .apng 도 내부적으로는 PNG 이므로 image/png 로 디코딩
-const IMAGE_TYPES = { '.png': 'image/png', '.apng': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
-
 let win = null;
 let tray = null;
-let pet = null;
+let settingsWin = null;
+let pet = null;          // 지금 캐릭터 (pets.js loadPetFromDir 결과 + size/speed/sleepAfterSec 실제 적용값)
 let quitting = false;
 let settings = {
   display: null,           // 표시할 모니터 식별 정보. null 이면 자동(지금 있는 모니터)
   hideOnFullscreen: true,  // 전체 화면 앱이 같은 모니터에 있으면 숨김
+  pet: null,               // 캐릭터 id ('builtin:default', 'builtin:cat', 'folder:<경로>'). null 이면 기본 순서
+  petFolders: [],          // 설정 화면에서 추가한 캐릭터 폴더
+  size: null,              // 아래 셋은 null 이면 캐릭터의 pet.json 값
+  speed: null,
+  sleepAfterSec: null,
+  shortcut: DEFAULT_SHORTCUT,
 };
 
 // 보이기/숨기기: 사용자가 숨긴 것과 전체 화면 때문에 자동으로 숨긴 것을 따로 관리
@@ -52,58 +49,27 @@ function log(...args) {
 }
 
 // ---------- 캐릭터 불러오기 ----------
-// 사용자 폴더(%APPDATA%\desktop-pet\pet)에 idle 이미지가 있으면 그것을, 없으면 기본 캐릭터를 사용
-function petDirCandidates() {
-  return [path.join(app.getPath('userData'), 'pet'), DEFAULT_PET_DIR];
+const userPetDir = () => path.join(app.getPath('userData'), 'pet');
+
+function availablePets() {
+  return listPets({ builtinRoot: BUILTIN_PETS, userPetDir: userPetDir(), extraDirs: settings.petFolders, log });
 }
 
-// 상태 하나에 이미지를 여러 개 둘 수 있음: click.gif, click_2.gif, click_jump.webp ...
-// "상태이름.확장자" 또는 "상태이름_아무거나.확장자". 그 상태가 될 때마다 하나를 무작위로 고름
-function findStateFiles(dir, name) {
-  let entries;
-  try { entries = fs.readdirSync(dir); } catch (_) { return []; }
-  const pattern = new RegExp(`^${name}(_[^.]+)?(${Object.keys(IMAGE_TYPES).map((e) => '\\' + e).join('|')})$`, 'i');
-  return entries
-    .filter((f) => pattern.test(f))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) // click_2 < click_10
-    .map((f) => path.join(dir, f));
-}
-
-function loadPet() {
-  for (const dir of petDirCandidates()) {
-    if (findStateFiles(dir, 'idle').length === 0) continue;
-
-    let conf = {};
+// 설정에서 고른 캐릭터를 불러옴. 불러오지 못하면 기본 순서(사용자 폴더 → 곰)로 다시 시도
+function loadCurrentPet() {
+  const pets = availablePets();
+  const tried = new Set();
+  for (let choice = choosePet(pets, settings.pet); choice && !tried.has(choice.id); choice = choosePet(pets.filter((p) => !tried.has(p.id)), null)) {
+    tried.add(choice.id);
     try {
-      conf = JSON.parse(fs.readFileSync(path.join(dir, 'pet.json'), 'utf8'));
+      const loaded = loadPetFromDir(choice.dir, { id: choice.id, log });
+      loaded.name = choice.name;
+      Object.assign(loaded, effectiveValues(loaded.base, settings));
+      log('pet loaded:', choice.id, Object.entries(loaded.states).map(([n, st]) => `${n}(${st.variants.map((v) => v.file).join(',')})`).join(' '));
+      return loaded;
     } catch (e) {
-      if (e.code !== 'ENOENT') log('pet.json 읽기 실패, 기본값 사용:', e.message);
+      log('pet load failed:', choice.id, e.message);
     }
-
-    const states = {};
-    for (const [name, def] of Object.entries(STATE_DEFAULTS)) {
-      const files = findStateFiles(dir, name);
-      if (files.length === 0) continue; // 없는 상태는 렌더러에서 idle 이미지로 대체
-      states[name] = {
-        ...def,
-        ...((conf.states && conf.states[name]) || {}),
-        variants: files.map((file) => ({
-          file: path.basename(file),
-          mime: IMAGE_TYPES[path.extname(file).toLowerCase()],
-          data: fs.readFileSync(file),
-        })),
-      };
-    }
-    log('pet loaded:', dir, Object.entries(states).map(([n, s]) => `${n}(${s.variants.map((v) => v.file).join(',')})`).join(' '));
-    return {
-      dir,
-      name: conf.name || path.basename(dir),
-      size: conf.size || 128,
-      speed: conf.speed || 80,                  // px/초
-      facing: conf.facing === 'left' ? 'left' : 'right', // 원본 이미지가 바라보는 방향
-      sleepAfterSec: conf.sleepAfterSec ?? 600, // 입력이 없으면 잠드는 시간
-      states,
-    };
   }
   throw new Error('idle 이미지가 있는 캐릭터 폴더를 찾을 수 없음');
 }
@@ -154,6 +120,7 @@ function setDisplaySetting(display) {
   log('display setting:', display ? `${display.label} ${JSON.stringify(display.bounds)}` : 'auto');
   ensureOnDisplay(activeDisplay());
   updateTrayMenu();
+  notifySettingsChanged();
 }
 
 // 모니터 연결·해제·해상도/배율 변경. 이벤트가 연달아 오므로 마지막 이벤트 후 한 번만 처리
@@ -164,6 +131,7 @@ function onDisplaysChanged(reason) {
     log('displays changed:', reason, screen.getAllDisplays().map((d) => `${d.label}${JSON.stringify(d.bounds)}`).join(' '));
     ensureOnDisplay(activeDisplay());
     updateTrayMenu();
+    notifySettingsChanged();
   }, 500);
 }
 
@@ -184,6 +152,34 @@ function savePosition() {
   if (!win || win.isDestroyed()) return;
   const [x, y] = win.getPosition();
   try { fs.writeFileSync(stateFile(), JSON.stringify({ x, y })); } catch (e) { log('save position failed:', e.message); }
+}
+
+// 캐릭터 크기가 바뀌면 발 위치(하단 중앙)를 고정한 채 창 크기를 바꿈
+function resizePetWindow(oldSize) {
+  if (!win || win.isDestroyed() || oldSize === pet.size) return;
+  syncPositionFromWindow();
+  behavior.x += (oldSize - pet.size) / 2;
+  behavior.y += oldSize - pet.size;
+  moveWindow(behavior.x, behavior.y);
+  ensureOnDisplay(activeDisplay());
+  sendToPet('pet:resize', pet.size);
+}
+
+// 크기·속도·잠드는 시간 다시 계산 (이미지는 다시 읽지 않음)
+function applyPetValues() {
+  const oldSize = pet.size;
+  Object.assign(pet, effectiveValues(pet.base, settings));
+  resizePetWindow(oldSize);
+}
+
+// 캐릭터 교체 또는 같은 폴더 다시 불러오기 (재시작 없이)
+function reloadPet() {
+  const oldSize = pet.size;
+  pet = loadCurrentPet();
+  resizePetWindow(oldSize);
+  if (tray) tray.setToolTip(`Desktop Pet - ${pet.name}`);
+  sendToPet('pet:reload'); // 렌더러가 pet:load로 이미지를 다시 받아 디코딩
+  if (behavior.state === 'walk') { setState('idle'); scheduleNextMove(); }
 }
 
 // ---------- 행동 (상태 전환 + 이동) ----------
@@ -275,14 +271,14 @@ function tick() {
     if (idleSec < 1) { setState('idle'); scheduleNextMove(); }
     return;
   }
-  if (idleSec >= pet.sleepAfterSec && behavior.state !== 'click') {
+  if (pet.sleepAfterSec > 0 && idleSec >= pet.sleepAfterSec && behavior.state !== 'click') { // 0 = 안 잠
     setState('sleep');
     return;
   }
 
   if (behavior.state === 'click') return; // 렌더러가 재생 종료를 알려줄 때까지 대기
 
-  if (behavior.state === 'idle' && now >= behavior.nextMoveAt) {
+  if (behavior.state === 'idle' && now >= behavior.nextMoveAt && pet.speed > 0) { // 0 = 안 움직임
     behavior.target = pickTarget();
     setState('walk');
   }
@@ -293,7 +289,7 @@ function tick() {
     const dist = Math.hypot(dx, dy);
     const step = pet.speed * dt;
     if (Math.abs(dx) > 1) setFacing(dx < 0 ? 'left' : 'right');
-    if (dist <= step) {
+    if (dist <= step || step <= 0) {
       behavior.x = behavior.target.x; behavior.y = behavior.target.y;
       setState('idle');
       scheduleNextMove();
@@ -309,6 +305,7 @@ function tick() {
 function registerIpc() {
   // 렌더러가 시작할 때 캐릭터 이미지와 현재 상태를 요청
   ipcMain.handle('pet:load', () => ({
+    id: pet.id,
     size: pet.size,
     baseFacing: pet.facing,
     facing: behavior.facing,
@@ -369,6 +366,17 @@ function registerIpc() {
   ipcMain.on('pet:menu', () => {
     if (win && !win.isDestroyed()) buildMenu().popup({ window: win });
   });
+
+  // 렌더러가 대표 이미지 첫 프레임으로 만든 트레이 아이콘 (16px, 32px). 원본이 GIF·WebP여도 쓸 수 있게
+  ipcMain.on('pet:tray-icon', (_e, { x1, x2 }) => {
+    if (!tray) return;
+    const icon = nativeImage.createEmpty();
+    icon.addRepresentation({ scaleFactor: 1, dataURL: x1 });
+    icon.addRepresentation({ scaleFactor: 2, dataURL: x2 });
+    tray.setImage(icon);
+  });
+
+  registerSettingsIpc();
 }
 
 // ---------- 창 ----------
@@ -456,20 +464,181 @@ function checkFullscreen() {
   }
 }
 
-// ---------- 자동 실행 ----------
-// 빌드된 exe에서만 의미가 있음 (npm start로 실행하면 electron.exe가 등록되므로 비활성화)
-function autoStartMenuItem() {
-  if (!app.isPackaged) return { label: 'Windows 시작 시 자동 실행 (빌드한 exe에서만)', enabled: false };
+// ---------- 단축키 ----------
+let registeredShortcut = null;
+
+// 새 단축키 등록. 다른 프로그램이 쓰고 있어 실패하면 원래 단축키로 되돌리고 false
+function setShortcut(acc) {
+  if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
+  let ok = false;
+  try { ok = globalShortcut.register(acc, toggleWindow); } catch (e) { log('invalid shortcut:', acc, e.message); }
+  if (ok) {
+    registeredShortcut = acc;
+    return true;
+  }
+  log(`shortcut register failed: ${acc}`);
+  if (registeredShortcut && registeredShortcut !== acc) globalShortcut.register(registeredShortcut, toggleWindow);
+  return false;
+}
+
+// ---------- 설정 변경 (설정 화면, 메뉴 공용) ----------
+// 바꾼 즉시 적용하고 저장. 실패하면 { ok: false, error } (설정 화면이 메시지로 보여줌)
+function applySetting(key, value) {
+  switch (key) {
+    case 'pet': {
+      const target = availablePets().find((p) => p.id === value && !p.missing);
+      if (!target) return { ok: false, error: '캐릭터 폴더를 찾을 수 없습니다.' };
+      const prev = settings.pet;
+      settings.pet = value;
+      try { reloadPet(); } catch (e) { settings.pet = prev; return { ok: false, error: e.message }; }
+      break;
+    }
+    case 'size':
+    case 'speed':
+    case 'sleepAfterSec':
+      settings[key] = value === null ? null : Number(value);
+      applyPetValues();
+      break;
+    case 'shortcut':
+      if (!setShortcut(value)) return { ok: false, error: `${shortcutLabel(value)}는 다른 프로그램이 쓰고 있거나 쓸 수 없는 조합입니다.` };
+      settings.shortcut = value;
+      break;
+    case 'display': {
+      if (value === null) { setDisplaySetting(null); break; }
+      const d = screen.getAllDisplays().find((x) => x.id === value);
+      if (!d) return { ok: false, error: '모니터를 찾을 수 없습니다.' };
+      setDisplaySetting(d);
+      break;
+    }
+    case 'hideOnFullscreen':
+      settings.hideOnFullscreen = !!value;
+      checkFullscreen();
+      break;
+    case 'autoStart':
+      if (!app.isPackaged) return { ok: false, error: '빌드한 exe에서만 설정할 수 있습니다.' };
+      app.setLoginItemSettings({ openAtLogin: !!value });
+      log('auto start:', !!value);
+      break;
+    default:
+      return { ok: false, error: `알 수 없는 설정: ${key}` };
+  }
+  saveSettings();
+  updateTrayMenu();
+  notifySettingsChanged();
+  return { ok: true };
+}
+
+// ---------- 설정 화면 ----------
+function settingsState() {
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+  const fixed = settings.display ? resolveDisplay(settings.display, displays) : null;
   return {
-    label: 'Windows 시작 시 자동 실행',
-    type: 'checkbox',
-    checked: app.getLoginItemSettings().openAtLogin,
-    click: (item) => {
-      app.setLoginItemSettings({ openAtLogin: item.checked });
-      log('auto start:', item.checked);
-      updateTrayMenu();
-    },
+    version: app.getVersion(),
+    pets: availablePets().map((p) => ({
+      id: p.id, name: p.name, builtin: p.builtin, removable: p.removable, missing: !!p.missing, dir: p.dir,
+      preview: p.missing ? null : previewOf(p.dir),
+    })),
+    petId: pet.id,
+    base: pet.base,                                       // pet.json 값 (기본값으로 되돌릴 때 표시)
+    values: { size: pet.size, speed: pet.speed, sleepAfterSec: pet.sleepAfterSec },
+    overrides: { size: settings.size, speed: settings.speed, sleepAfterSec: settings.sleepAfterSec },
+    displays: displays.map((d, i) => ({ id: d.id, label: displayMenuLabel(d, i, primaryId) })),
+    displayId: fixed ? fixed.id : null,
+    displayMissing: settings.display && !fixed ? (settings.display.label || '설정한 모니터') : null,
+    shortcut: settings.shortcut,
+    shortcutLabel: shortcutLabel(settings.shortcut),
+    hideOnFullscreen: settings.hideOnFullscreen,
+    fullscreenAvailable: !!fullscreenDisplayId,
+    autoStart: { available: app.isPackaged, enabled: app.isPackaged && app.getLoginItemSettings().openAtLogin },
   };
+}
+
+function notifySettingsChanged() {
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:changed', settingsState());
+}
+
+function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore();
+    settingsWin.show();
+    settingsWin.focus();
+    return;
+  }
+  settingsWin = new BrowserWindow({
+    width: 500,
+    height: 660,
+    minWidth: 420,
+    minHeight: 400,
+    title: 'Desktop Pet 설정',
+    icon: nativeImage.createFromPath(TRAY_ICON),
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'settings-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.removeMenu();
+  settingsWin.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWin.once('ready-to-show', () => settingsWin.show());
+  settingsWin.on('closed', () => {
+    settingsWin = null;
+    if (registeredShortcut === null && settings.shortcut) setShortcut(settings.shortcut); // 단축키 입력 중에 닫은 경우
+  });
+}
+
+function registerSettingsIpc() {
+  ipcMain.handle('settings:get', () => settingsState());
+  ipcMain.handle('settings:set', (_e, key, value) => applySetting(key, value));
+
+  // 단축키를 입력받는 동안에는 기존 단축키를 잠시 해제 (등록된 조합은 설정 창에 키 입력이 오지 않음)
+  ipcMain.handle('settings:pause-shortcut', () => {
+    if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
+    registeredShortcut = null;
+  });
+  ipcMain.handle('settings:resume-shortcut', () => {
+    if (!registeredShortcut) setShortcut(settings.shortcut);
+  });
+
+  ipcMain.handle('settings:add-folder', async () => {
+    const r = await dialog.showOpenDialog(settingsWin, {
+      title: '캐릭터 폴더 선택 (idle 이미지가 있는 폴더)',
+      properties: ['openDirectory'],
+    });
+    if (r.canceled || !r.filePaths[0]) return { ok: true, canceled: true };
+    const dir = r.filePaths[0];
+    if (!hasIdle(dir)) return { ok: false, error: '이 폴더에는 idle 이미지(idle.png, idle.gif 등)가 없습니다.' };
+    const existing = availablePets().find((p) => path.resolve(p.dir).toLowerCase() === path.resolve(dir).toLowerCase());
+    if (!existing) settings.petFolders.push(dir);
+    return applySetting('pet', existing ? existing.id : `folder:${dir}`);
+  });
+
+  ipcMain.handle('settings:remove-folder', (_e, id) => {
+    const target = availablePets().find((p) => p.id === id && p.removable);
+    if (!target) return { ok: false, error: '목록에서 제거할 수 없는 캐릭터입니다.' };
+    settings.petFolders = settings.petFolders.filter((d) => `folder:${d}` !== id);
+    if (settings.pet === id) { settings.pet = null; reloadPet(); }
+    saveSettings();
+    updateTrayMenu();
+    notifySettingsChanged();
+    return { ok: true };
+  });
+
+  ipcMain.handle('settings:reload-pet', () => {
+    try { reloadPet(); } catch (e) { return { ok: false, error: e.message }; }
+    notifySettingsChanged();
+    return { ok: true };
+  });
+
+  ipcMain.handle('settings:open-folder', (_e, which) => {
+    const dir = which === 'userData' ? app.getPath('userData') : pet.dir;
+    // 내장 캐릭터는 app.asar 안에 있어 탐색기로 열 수 없음
+    if (dir.includes('app.asar')) return { ok: false, error: '기본 제공 캐릭터는 폴더를 열 수 없습니다.' };
+    shell.openPath(dir);
+    return { ok: true };
+  });
 }
 
 // ---------- 메뉴 (트레이 우클릭, 이미지 우클릭 공용) ----------
@@ -497,25 +666,34 @@ function buildDisplayMenu() {
   return items;
 }
 
+function buildPetMenu() {
+  return availablePets().filter((p) => !p.missing).map((p) => ({
+    label: p.builtin ? p.name : `${p.name} (폴더)`,
+    type: 'radio',
+    checked: pet && pet.id === p.id,
+    click: () => applySetting('pet', p.id),
+  }));
+}
+
 function buildMenu() {
   const visible = win && !win.isDestroyed() && win.isVisible();
+  const label = shortcutLabel(registeredShortcut || settings.shortcut);
   return Menu.buildFromTemplate([
-    { label: visible ? `숨기기 (${TOGGLE_LABEL})` : `보이기 (${TOGGLE_LABEL})`, click: toggleWindow },
+    { label: visible ? `숨기기 (${label})` : `보이기 (${label})`, click: toggleWindow },
+    { label: '캐릭터', submenu: buildPetMenu() },
     { label: '표시할 모니터', submenu: buildDisplayMenu() },
     {
       label: '전체 화면 앱 실행 중에는 숨기기',
       type: 'checkbox',
       checked: settings.hideOnFullscreen,
       enabled: !!fullscreenDisplayId,
-      click: (item) => {
-        settings.hideOnFullscreen = item.checked;
-        saveSettings();
-        checkFullscreen();
-        updateTrayMenu();
-      },
+      click: (item) => applySetting('hideOnFullscreen', item.checked),
     },
-    autoStartMenuItem(),
+    app.isPackaged
+      ? { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (item) => applySetting('autoStart', item.checked) }
+      : { label: 'Windows 시작 시 자동 실행 (빌드한 exe에서만)', enabled: false },
     { type: 'separator' },
+    { label: '설정…', click: openSettings },
     { label: '종료', click: quitApp },
   ]);
 }
@@ -529,6 +707,7 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip(`Desktop Pet - ${pet.name}`);
   tray.on('click', toggleWindow);
+  tray.on('double-click', openSettings);
   updateTrayMenu();
 }
 
@@ -540,6 +719,7 @@ function quitApp() {
   savePosition();
   globalShortcut.unregisterAll();
   if (tray) { tray.destroy(); tray = null; }
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.destroy();
   if (win && !win.isDestroyed()) win.destroy();
   app.quit();
   // app.quit()으로 프로세스가 끝나지 않는 경우를 대비해 강제 종료
@@ -560,14 +740,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     log('start', `v${app.getVersion()}`);
+    loadSettings();
     try {
-      pet = loadPet();
+      pet = loadCurrentPet();
     } catch (e) {
       log('pet load failed:', e.message);
       app.exit(1);
       return;
     }
-    loadSettings();
     registerIpc();
     createWindow();
     createTray();
@@ -580,10 +760,8 @@ if (!app.requestSingleInstanceLock()) {
     }, FALLBACK_TICK_MS);
     fullscreenDisplayId = createFullscreenDetector(log);
     if (fullscreenDisplayId) setInterval(checkFullscreen, FULLSCREEN_CHECK_MS);
+    if (!setShortcut(settings.shortcut) && settings.shortcut !== DEFAULT_SHORTCUT) setShortcut(DEFAULT_SHORTCUT);
     updateTrayMenu();
-    if (!globalShortcut.register(TOGGLE_SHORTCUT, toggleWindow)) {
-      log(`shortcut register failed: ${TOGGLE_SHORTCUT}`);
-    }
   });
 
   app.on('will-quit', () => { globalShortcut.unregisterAll(); log('will-quit'); });

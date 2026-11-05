@@ -1,12 +1,12 @@
 {
   "name": "desktop-pet",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "바탕화면에 이미지가 떠다니는 데스크톱 앱",
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/displays.test.js",
+    "test": "node test/displays.test.js && node test/pets.test.js",
     "make-sample-pet": "node scripts/make-sample-pet.js",
     "make-cat-pet": "node scripts/make-cat-pet.js",
     "package:win": "electron-packager . desktop-pet --platform=win32 --arch=x64 --out=dist --overwrite --asar --asar.unpack=\"*.node\" --ignore=\"^/dist\" --ignore=\"^/scripts\" --ignore=\"^/docs\" --ignore=\"^/test\" --ignore=\"/node_modules/koffi/build/koffi/(?!win32_x64)\" --ignore=\"/node_modules/koffi/(src|doc|vendor)/\""
