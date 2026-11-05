@@ -10,18 +10,20 @@
 // 사용법: node scripts/make-sample-pet.js [출력 폴더]
 const fs = require('fs');
 const path = require('path');
-const { W, H, encodePNG, encodeAPNG, encodeGIF } = require('./image-encode');
+const { W, H, encodePNG, encodeAPNG, encodeGIF, encodeICO } = require('./image-encode');
 const OUT = process.argv[2] || path.join(__dirname, '..', 'assets', 'pets', 'default');
 
 // ---------- 래스터 ----------
 const OUTLINE = [70, 50, 40], FUR = [255, 196, 120], DARK = [50, 35, 30],
   WHITE = [255, 255, 255], CHEEK = [255, 140, 140];
 
-function newCanvas() { return Buffer.alloc(W * H * 4); }
+// 캔버스 크기: 캐릭터 이미지는 128, 아이콘을 그릴 때만 바꿈
+let CW = W, CH = H;
+function newCanvas() { return Buffer.alloc(CW * CH * 4); }
 
 function blend(px, x, y, [r, g, b], a) {
-  if (x < 0 || y < 0 || x >= W || y >= H || a <= 0) return;
-  const i = (y * W + x) * 4;
+  if (x < 0 || y < 0 || x >= CW || y >= CH || a <= 0) return;
+  const i = (y * CW + x) * 4;
   const da = px[i + 3] / 255, sa = Math.min(1, a);
   const oa = sa + da * (1 - sa);
   [r, g, b].forEach((c, k) => { px[i + k] = Math.round((c * sa + px[i + k] * da * (1 - sa)) / (oa || 1)); });
@@ -30,8 +32,8 @@ function blend(px, x, y, [r, g, b], a) {
 
 // 가장자리를 1px 부드럽게 처리한 타원
 function ellipse(px, cx, cy, rx, ry, color) {
-  const x0 = Math.max(0, Math.floor(cx - rx - 1)), x1 = Math.min(W - 1, Math.ceil(cx + rx + 1));
-  const y0 = Math.max(0, Math.floor(cy - ry - 1)), y1 = Math.min(H - 1, Math.ceil(cy + ry + 1));
+  const x0 = Math.max(0, Math.floor(cx - rx - 1)), x1 = Math.min(CW - 1, Math.ceil(cx + rx + 1));
+  const y0 = Math.max(0, Math.floor(cy - ry - 1)), y1 = Math.min(CH - 1, Math.ceil(cy + ry + 1));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const d = Math.hypot((x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry);
     blend(px, x, y, color, Math.max(0, Math.min(1, (1 - d) * Math.min(rx, ry) + 0.5)));
@@ -46,10 +48,12 @@ function line(px, x0, y0, x1, y1, r, color) {
 
 // ---------- 곰 ----------
 // 좌표는 하단 중앙(64, 118)을 원점으로 한 값. k=0.8로 줄여 점프·Z가 들어갈 위쪽 여백을 확보.
-function drawBear(px, { dx = 0, dy = 0, sx = 1, sy = 1, eyes = 'open', look = 0, mouth = 'small', feet = null } = {}) {
-  const k = 0.8;
-  const X = (lx) => 64 + dx + k * sx * lx, Y = (ly) => 118 + dy + k * sy * ly;
-  const E = (lx, ly, rx, ry, c) => ellipse(px, X(lx), Y(ly), k * sx * rx, k * sy * ry, c);
+// view: 128 캔버스 좌표를 다른 크기 캔버스로 옮길 때 (아이콘). 화면 좌표 = o + scale * (128 기준 좌표)
+function drawBear(px, { dx = 0, dy = 0, sx = 1, sy = 1, eyes = 'open', look = 0, mouth = 'small', feet = null,
+  view = { scale: 1, ox: 0, oy: 0 } } = {}) {
+  const k = 0.8, vs = view.scale;
+  const X = (lx) => view.ox + vs * (64 + dx + k * sx * lx), Y = (ly) => view.oy + vs * (118 + dy + k * sy * ly);
+  const E = (lx, ly, rx, ry, c) => ellipse(px, X(lx), Y(ly), vs * k * sx * rx, vs * k * sy * ry, c);
 
   if (feet) { // 걷기: 발을 번갈아 들어 올림
     E(-22, -4 + feet[0], 12, 8, OUTLINE); E(-22, -4 + feet[0], 9.5, 5.5, FUR);
@@ -65,11 +69,11 @@ function drawBear(px, { dx = 0, dy = 0, sx = 1, sy = 1, eyes = 'open', look = 0,
   } else if (eyes === 'surprised') {
     for (const s of [-1, 1]) { E(ex(s), -50, 7, 9, DARK); E(ex(s) - 2, -54, 2.5, 3, WHITE); }
   } else if (eyes === 'closed') {
-    for (const s of [-1, 1]) line(px, X(ex(s) - 6), Y(-46), X(ex(s) + 6), Y(-46), 1.4, DARK);
+    for (const s of [-1, 1]) line(px, X(ex(s) - 6), Y(-46), X(ex(s) + 6), Y(-46), 1.4 * vs, DARK);
   } else if (eyes === 'happy') { // ^ ^
     for (const s of [-1, 1]) {
-      line(px, X(ex(s) - 6), Y(-44), X(ex(s)), Y(-52), 1.4, DARK);
-      line(px, X(ex(s)), Y(-52), X(ex(s) + 6), Y(-44), 1.4, DARK);
+      line(px, X(ex(s) - 6), Y(-44), X(ex(s)), Y(-52), 1.4 * vs, DARK);
+      line(px, X(ex(s)), Y(-52), X(ex(s) + 6), Y(-44), 1.4 * vs, DARK);
     }
   }
   E(-26 + look, -34, 7, 4, CHEEK); E(26 + look, -34, 7, 4, CHEEK);
@@ -130,6 +134,22 @@ fs.writeFileSync(path.join(OUT, 'pet.json'), JSON.stringify({
   sleepAfterSec: 600,
 }, null, 2) + '\n');
 console.log('pet.json');
+
+// 앱 아이콘 (exe, 설치 프로그램, 시작 메뉴): 크기마다 다시 그려야 작은 크기에서도 선명함.
+// 곰이 128 캔버스에서 차지하는 영역(약 x 23~105, y 39~119)을 아이콘 정사각형 가운데에 맞춤
+const ICON_SIZES = [16, 24, 32, 48, 64, 128, 256];
+const icons = ICON_SIZES.map((size) => {
+  CW = size; CH = size;
+  const scale = (size * 0.94) / 82;
+  const view = { scale, ox: size / 2 - scale * 64, oy: size / 2 - scale * 79 };
+  const px = newCanvas();
+  drawBear(px, { view });
+  return { size, png: encodePNG(px, size, size) };
+});
+CW = W; CH = H;
+fs.writeFileSync(path.join(OUT, '..', '..', 'icon.ico'), encodeICO(icons));
+fs.writeFileSync(path.join(OUT, '..', '..', 'icon.png'), icons[icons.length - 1].png);
+console.log('icon.ico', ICON_SIZES.join(','), '/ icon.png 256');
 
 // 트레이 아이콘
 const tray = path.join(OUT, '..', '..', 'tray.png');

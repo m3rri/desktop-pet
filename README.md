@@ -12,13 +12,27 @@ npm install
 npm start
 ```
 
-## Windows 실행 파일 만들기
+## 설치
+
+`DesktopPet-Setup-<버전>.exe`를 실행합니다.
+
+- 기본은 "현재 사용자만" 설치라 관리자 권한이 필요 없습니다 (`%LOCALAPPDATA%\Programs\Desktop Pet`)
+- 시작 메뉴와 바탕화면에 바로가기가 생기고, 설정 → 앱에서 제거할 수 있습니다
+- 제거해도 설정·로그 폴더(`%APPDATA%\desktop-pet`)는 남습니다. 다시 설치하면 그대로 이어서 씁니다
+- 코드 서명이 없어 처음 실행할 때 SmartScreen 경고가 뜨면 "추가 정보 → 실행"
+
+## 빌드
 
 ```bash
-npm run package:win
+npm install
+npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-<버전>.exe
+npm run package:win   # 압축 버전(설치 없이 실행) → dist/desktop-pet-win32-x64/
 ```
 
-`dist/desktop-pet-win32-x64/desktop-pet.exe`가 생성됩니다. 폴더째 복사하면 Node.js 없이 실행됩니다.
+`dist:win`은 Windows에서 실행하면 바로 됩니다. Linux·macOS에서는 Wine(32비트 포함)이 필요합니다.
+electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한 번 실행하기 때문입니다.
+
+앱 아이콘(`assets/icon.ico`)은 `npm run make-sample-pet`이 곰을 크기별(16~256px)로 다시 그려서 만듭니다.
 
 ## 조작
 
@@ -217,4 +231,5 @@ docs/plan.md      단계별 계획
 - [x] Windows에서 확인
 
 4-3
-- [ ] 설치 프로그램 (NSIS)
+- [x] 설치 프로그램 (NSIS): 현재 사용자 설치, 시작 메뉴·바탕화면 바로가기, 제거, 앱 아이콘
+- [x] Windows에서 확인

@@ -1,7 +1,8 @@
 {
   "name": "desktop-pet",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "바탕화면에 이미지가 떠다니는 데스크톱 앱",
+  "author": "m3rri",
   "main": "src/main.js",
   "private": true,
   "scripts": {
@@ -9,7 +10,8 @@
     "test": "node test/displays.test.js && node test/pets.test.js",
     "make-sample-pet": "node scripts/make-sample-pet.js",
     "make-cat-pet": "node scripts/make-cat-pet.js",
-    "package:win": "electron-packager . desktop-pet --platform=win32 --arch=x64 --out=dist --overwrite --asar --asar.unpack=\"*.node\" --ignore=\"^/dist\" --ignore=\"^/scripts\" --ignore=\"^/docs\" --ignore=\"^/test\" --ignore=\"/node_modules/koffi/build/koffi/(?!win32_x64)\" --ignore=\"/node_modules/koffi/(src|doc|vendor)/\""
+    "package:win": "electron-packager . desktop-pet --platform=win32 --arch=x64 --out=dist --overwrite --asar --asar.unpack=\"*.node\" --ignore=\"^/dist\" --ignore=\"^/scripts\" --ignore=\"^/docs\" --ignore=\"^/test\" --ignore=\"/node_modules/koffi/build/koffi/(?!win32_x64)\" --ignore=\"/node_modules/koffi/(src|doc|vendor)/\"",
+    "dist:win": "electron-builder --win nsis --x64"
   },
   "dependencies": {
     "koffi": "^2.16.3"
@@ -17,6 +19,58 @@
   "devDependencies": {
     "electron": "^36.0.0",
     "@electron/packager": "^20.3.0",
-    "gifenc": "^1.0.3"
+    "gifenc": "^1.0.3",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "io.github.m3rri.desktoppet",
+    "productName": "Desktop Pet",
+    "copyright": "© m3rri",
+    "directories": {
+      "output": "dist/installer",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!node_modules/koffi/build/koffi/!(win32_x64)/**",
+      "!node_modules/koffi/{src,doc,vendor}/**"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Desktop Pet",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerLanguages": [
+        "ko_KR"
+      ],
+      "language": "1042",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "DesktopPet-Setup-${version}.exe"
+    },
+    "publish": null,
+    "electronLanguages": [
+      "ko",
+      "en-US"
+    ]
   }
 }

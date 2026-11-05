@@ -14,18 +14,37 @@ function chunk(type, data) {
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
   return Buffer.concat([len, td, crc]);
 }
-function idat(px) {
-  const raw = Buffer.alloc((W * 4 + 1) * H);
-  for (let y = 0; y < H; y++) px.copy(raw, y * (W * 4 + 1) + 1, y * W * 4, (y + 1) * W * 4);
+function idat(px, w = W, h = H) {
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y++) px.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4);
   return zlib.deflateSync(raw);
 }
-function ihdr() {
-  const b = Buffer.alloc(13); b.writeUInt32BE(W, 0); b.writeUInt32BE(H, 4); b[8] = 8; b[9] = 6; return b;
+function ihdr(w = W, h = H) {
+  const b = Buffer.alloc(13); b.writeUInt32BE(w, 0); b.writeUInt32BE(h, 4); b[8] = 8; b[9] = 6; return b;
 }
 const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function encodePNG(px) {
-  return Buffer.concat([SIG, chunk('IHDR', ihdr()), chunk('IDAT', idat(px)), chunk('IEND', Buffer.alloc(0))]);
+function encodePNG(px, w = W, h = H) {
+  return Buffer.concat([SIG, chunk('IHDR', ihdr(w, h)), chunk('IDAT', idat(px, w, h)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+// Windows 아이콘(.ico): 크기별 PNG를 그대로 담는 형식 (Windows Vista 이상)
+//   images: [{ size, png }]  size는 16~256
+function encodeICO(images) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(images.length, 4);
+  let offset = 6 + 16 * images.length;
+  const entries = images.map(({ size, png }) => {
+    const e = Buffer.alloc(16);
+    e[0] = size >= 256 ? 0 : size; e[1] = size >= 256 ? 0 : size; // 0 = 256
+    e.writeUInt16LE(1, 4);   // planes
+    e.writeUInt16LE(32, 6);  // bits per pixel
+    e.writeUInt32LE(png.length, 8);
+    e.writeUInt32LE(offset, 12);
+    offset += png.length;
+    return e;
+  });
+  return Buffer.concat([header, ...entries, ...images.map((i) => i.png)]);
 }
 
 // APNG: acTL(애니메이션 정보) + 프레임마다 fcTL(위치·지연) + IDAT/fdAT(이미지)
@@ -63,4 +82,4 @@ function encodeGIF(frames, delayMs) {
   return Buffer.from(gif.bytes());
 }
 
-module.exports = { W, H, encodePNG, encodeAPNG, encodeGIF };
+module.exports = { W, H, encodePNG, encodeAPNG, encodeGIF, encodeICO };

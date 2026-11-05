@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
 const { createFullscreenDetector } = require('./fullscreen');
+
+// 설정·로그 폴더를 %APPDATA%\desktop-pet 으로 고정.
+// 설치판은 productName("Desktop Pet")이 앱 이름이 되어 폴더가 %APPDATA%\Desktop Pet 으로 바뀌므로,
+// zip판에서 쓰던 설정을 그대로 이어 쓰도록 이름을 따로 지정. 단일 실행 잠금보다 먼저 해야 함
+app.setPath('userData', path.join(app.getPath('appData'), 'desktop-pet'));
 const { listPets, choosePet, effectiveValues, loadPetFromDir, previewOf, hasIdle } = require('./pets');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
