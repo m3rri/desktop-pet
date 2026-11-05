@@ -3,3 +3,4 @@ dist/
 out/
 *.log
 .gitconfig-personal
+Claude outputs/

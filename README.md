@@ -32,7 +32,7 @@ npm run package:win   # 압축 버전(설치 없이 실행) → dist/desktop-pet
 `dist:win`은 Windows에서 실행하면 바로 됩니다. Linux·macOS에서는 Wine(32비트 포함)이 필요합니다.
 electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한 번 실행하기 때문입니다.
 
-앱 아이콘(`assets/icon.ico`)은 `npm run make-sample-pet`이 곰을 크기별(16~256px)로 다시 그려서 만듭니다.
+앱 아이콘(`assets/icon.ico`)은 `npm run make-pets`가 곰을 크기별(16~256px)로 다시 그려서 만듭니다.
 
 ## 조작
 
@@ -70,7 +70,7 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 
 | 항목 | 내용 |
 |---|---|
-| 캐릭터 | 기본 제공(곰, 검은 고양이)과 내 폴더 중에서 선택. 재시작 없이 바로 바뀜. **폴더 추가**로 다른 폴더를 등록할 수 있고, 폴더 안 이미지를 바꿨으면 **다시 불러오기** |
+| 캐릭터 | 기본 제공(곰, 검은 고양이, 강아지, 오목눈이)과 내 폴더 중에서 선택. 재시작 없이 바로 바뀜. **폴더 추가**로 다른 폴더를 등록할 수 있고, 폴더 안 이미지를 바꿨으면 **다시 불러오기** |
 | 크기 | 64~256px. 발 위치를 고정한 채 커지고 작아짐 |
 | 이동 속도 | 0~200px/초. 0이면 제자리 |
 | 잠들기까지 | 캐릭터 기본값 / 안 잠 / 1~60분 |
@@ -149,9 +149,16 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 | `sleepAfterSec` | 입력이 없을 때 잠들기까지 걸리는 시간(초) | 600 |
 | `states.<상태>.loop` | 반복 재생 여부 | click만 `false` |
 
-기본 캐릭터 이미지는 `npm run make-sample-pet`으로 다시 만들 수 있습니다 (`scripts/make-sample-pet.js`).
+기본 캐릭터(곰, 검은 고양이, 강아지, 오목눈이)와 앱·트레이 아이콘은 `npm run make-pets`로 다시 만들 수 있습니다 (`scripts/make-pets.js`).
+그림체: 손그림 느낌의 굵은 갈색 외곽선, 납작하고 둥근 떡 같은 몸, 작은 점 눈, 큰 분홍 볼터치, 파스텔 단색.
+외곽선을 각도에 따라 조금씩 흔들어 손으로 그린 듯 보이게 하고, 프레임마다 흔들림을 바꿔 선이 살짝 일렁입니다.
 
-같은 그림체의 검은 고양이도 기본 제공됩니다 (`assets/pets/cat`, 클릭 이미지 5개: 점프·흔들기·꼬리·갸웃·하트). 다시 만들려면 `npm run make-cat-pet`.
+| 캐릭터 | 클릭 애니메이션 (무작위) |
+|---|---|
+| 곰 (`assets/pets/default`) | 점프, 흔들기, 볼 감싸기 |
+| 검은 고양이 (`assets/pets/cat`) | 점프, 흔들기, 꼬리 흔들기, 고개 갸웃, 하트 |
+| 강아지 (`assets/pets/dog`) | 점프, 흔들기, 꼬리 흔들기, 고개 갸웃 (걷기·클릭 때 혀를 내밂) |
+| 오목눈이 (`assets/pets/bird`) | 날갯짓, 날개 펴고 점프, 하트 (클릭하면 항상 날개가 보임) |
 
 ## 파일 위치
 
@@ -175,8 +182,10 @@ src/renderer.js   이미지를 프레임으로 풀어(ImageDecoder) canvas에 �
 src/index.html    canvas
 assets/pets/default/  기본 캐릭터 (곰)
 assets/pets/cat/      검은 고양이
+assets/pets/dog/      강아지 (비글)
+assets/pets/bird/     오목눈이
 assets/tray.png   트레이 아이콘
-scripts/          캐릭터 이미지 생성 스크립트 (곰, 고양이, 공용 PNG/APNG/GIF 인코더)
+scripts/          기본 캐릭터·아이콘 생성 스크립트 (make-pets.js), PNG/APNG/ICO 인코더
 test/             모니터 식별·배치, 캐릭터 폴더 테스트 (npm test)
 docs/plan.md      단계별 계획
 ```
@@ -220,7 +229,7 @@ docs/plan.md      단계별 계획
 - [x] Windows에서 확인
 
 캐릭터
-- [x] 상태별 이미지 여러 개, 무작위 재생 (기본 곰에 클릭 이미지 2개: 점프, 흔들기)
+- [x] 상태별 이미지 여러 개, 무작위 재생
 - [x] 같은 그림체의 검은 고양이 캐릭터 (클릭 이미지 5개)
 - [x] Windows에서 확인
 

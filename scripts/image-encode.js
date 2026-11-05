@@ -1,6 +1,5 @@
-// 캐릭터 이미지 생성 스크립트 공용: RGBA 버퍼(128x128)를 PNG / APNG / GIF로 인코딩
+// 캐릭터 이미지 생성 스크립트용: RGBA 버퍼를 PNG / APNG / ICO로 인코딩
 const zlib = require('zlib');
-const { GIFEncoder, quantize, applyPalette } = require('gifenc');
 
 const W = 128, H = 128;
 
@@ -69,17 +68,5 @@ function encodeAPNG(frames, delayMs) {
   return Buffer.concat(parts);
 }
 
-function encodeGIF(frames, delayMs) {
-  const gif = GIFEncoder();
-  for (const px of frames) {
-    const rgba = new Uint8Array(px);
-    const palette = quantize(rgba, 256, { format: 'rgba4444', oneBitAlpha: true });
-    const index = applyPalette(rgba, palette, 'rgba4444');
-    const transparentIndex = Math.max(0, palette.findIndex((c) => c[3] === 0));
-    gif.writeFrame(index, W, H, { palette, delay: delayMs, transparent: true, transparentIndex, dispose: 2 });
-  }
-  gif.finish();
-  return Buffer.from(gif.bytes());
-}
 
-module.exports = { W, H, encodePNG, encodeAPNG, encodeGIF, encodeICO };
+module.exports = { W, H, encodePNG, encodeAPNG, encodeICO };

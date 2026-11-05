@@ -1,0 +1,7 @@
+{
+  "name": "강아지",
+  "size": 128,
+  "speed": 80,
+  "facing": "right",
+  "sleepAfterSec": 600
+}
