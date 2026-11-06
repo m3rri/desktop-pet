@@ -42,12 +42,16 @@ const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toL
 // 고를 수 있는 캐릭터 목록
 //   내장: builtinRoot 아래 폴더들 (default가 맨 앞)
 //   사용자: userPetDir(%APPDATA%\desktop-pet\pet), 설정에서 추가한 폴더들
-// 추가한 폴더가 지워졌거나 idle 이미지가 없으면 missing=true 로 표시 (선택 불가, 목록에서 제거만 가능)
+// 추가한 폴더가 지워졌거나 idle 이미지가 없으면 missing=true 로 표시 (선택 불가, 목록에서 제거만 가능).
+// 폴더는 있는데 idle 이미지가 아직 없으면 empty=true (새 캐릭터 폴더를 막 만든 상태)
 function listPets({ builtinRoot, userPetDir, extraDirs = [], log }) {
   const pets = [];
   let builtins = [];
   try { builtins = fs.readdirSync(builtinRoot); } catch (_) { /* 없음 */ }
-  builtins.sort((a, b) => (a === 'default' ? -1 : b === 'default' ? 1 : a.localeCompare(b)));
+  // 기본 제공 캐릭터 순서: 곰, 고양이, 강아지, 토끼, 오목눈이 (그 밖의 폴더는 이름순으로 뒤에)
+  const ORDER = ['default', 'cat', 'dog', 'rabbit', 'bird'];
+  const rank = (n) => (ORDER.includes(n) ? ORDER.indexOf(n) : ORDER.length);
+  builtins.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   for (const name of builtins) {
     const dir = path.join(builtinRoot, name);
     if (!hasIdle(dir)) continue;
@@ -60,7 +64,7 @@ function listPets({ builtinRoot, userPetDir, extraDirs = [], log }) {
     if (pets.some((p) => samePath(p.dir, dir))) continue;
     const ok = hasIdle(dir);
     pets.push({
-      id: `folder:${dir}`, dir, builtin: false, removable: true, missing: !ok,
+      id: `folder:${dir}`, dir, builtin: false, removable: true, missing: !ok, empty: !ok && fs.existsSync(dir),
       name: (ok && readPetConfig(dir, log).name) || path.basename(dir),
     });
   }

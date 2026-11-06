@@ -42,13 +42,13 @@ function renderPets() {
   for (const p of state.pets) {
     const el = document.createElement('div');
     el.className = 'pet' + (p.id === state.petId ? ' selected' : '') + (p.missing ? ' missing' : '');
-    el.title = p.builtin ? p.name : p.dir;
+    el.title = p.empty ? `${p.dir}\n이 폴더에 idle.png 등 이미지를 넣으면 고를 수 있습니다` : p.builtin ? p.name : p.dir;
     const url = thumbUrl(p);
     if (url) { const img = document.createElement('img'); img.src = url; img.alt = ''; el.append(img); }
     else { const ph = document.createElement('div'); ph.style.height = '76px'; el.append(ph); }
     const name = document.createElement('div'); name.className = 'name'; name.textContent = p.name;
     const tag = document.createElement('div'); tag.className = 'tag';
-    tag.textContent = p.missing ? '폴더를 찾을 수 없음' : p.builtin ? '기본 제공' : '내 폴더';
+    tag.textContent = p.empty ? '이미지를 넣어 주세요' : p.missing ? '폴더를 찾을 수 없음' : p.builtin ? '기본 제공' : '내 폴더';
     el.append(name, tag);
     if (!p.missing) el.addEventListener('click', () => { if (p.id !== state.petId) set('pet', p.id); });
     if (p.removable) {
@@ -196,6 +196,7 @@ function render(s) {
   renderSpeed();
   renderSleep();
   renderDisplay();
+  $('boil').checked = state.boilStatic;
   $('fullscreen').checked = state.hideOnFullscreen;
   $('fullscreen').disabled = !state.fullscreenAvailable;
   $('fullscreen-hint').textContent = state.fullscreenAvailable ? '게임, 영상, 브라우저 F11 등' : 'Windows에서만 쓸 수 있습니다';
@@ -207,5 +208,15 @@ function render(s) {
 }
 
 $('open-userdata').addEventListener('click', () => api.openFolder('userData'));
+
+$('boil').addEventListener('change', (e) => set('boilStatic', e.target.checked));
+
+$('create-pet-folder').addEventListener('click', async () => {
+  const r = await api.createPetFolder();
+  if (!r.ok) toast(r.error);
+});
+
+// 탐색기에서 이미지를 넣고 돌아오면 목록을 다시 읽어 바로 고를 수 있게
+window.addEventListener('focus', async () => { if (!recording) render(await api.get()); });
 api.onChanged((s) => { if (!recording) render(s); });
 api.get().then(render);

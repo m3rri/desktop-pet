@@ -32,10 +32,50 @@ function alphaMask(bitmap) {
   return alpha;
 }
 
-async function decodeImage(bytes, mime) {
-  const frames = await decodeFrames(bytes, mime);
+async function decodeImage(bytes, mime, { boil = false, loop = true } = {}) {
+  let frames = await decodeFrames(bytes, mime);
+  if (boil && frames.length === 1) frames = await boilFrames(frames[0].bitmap, loop);
   for (const f of frames) f.alpha = alphaMask(f.bitmap);
   return frames;
+}
+
+// ---------- 정지 이미지 선 일렁임 ----------
+// 정지 이미지 한 장을 아주 조금씩 다르게 휘게 한 3장으로 만들어 번갈아 보여줌 → 손그림 애니메이션처럼 선이 일렁임.
+// 이미지 생성 AI는 같은 그림을 선만 다르게 여러 장 그리지 못하므로 앱이 대신 만듦.
+// 픽셀을 부드러운 물결 모양 변위로 옮김 (128px 기준 최대 약 0.9px, 큰 이미지는 크기에 비례)
+const BOIL_FRAMES = 3;
+const BOIL_MS = 220;
+async function boilFrames(bitmap, loop) {
+  const w = bitmap.width, h = bitmap.height;
+  const src = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+  src.drawImage(bitmap, 0, 0);
+  const s = src.getImageData(0, 0, w, h).data;
+  const amp = 0.9 * Math.max(w, h) / 128;
+  const out = [];
+  for (let k = 0; k < BOIL_FRAMES; k++) {
+    const p = k * 2.1;
+    const img = new ImageData(w, h);
+    const d = img.data;
+    for (let y = 0; y < h; y++) {
+      const v = y / h;
+      for (let x = 0; x < w; x++) {
+        const u = x / w;
+        const dx = amp * (0.6 * Math.sin(2 * Math.PI * (3 * v + 0.5 * u) + p) + 0.4 * Math.sin(2 * Math.PI * (5 * u + 4 * v) + p * 1.7));
+        const dy = amp * (0.6 * Math.sin(2 * Math.PI * (3 * u - 0.4 * v) + p * 1.3 + 1) + 0.4 * Math.sin(2 * Math.PI * (4 * u - 5 * v) + p * 0.7 + 2));
+        // 양선형 보간으로 원본에서 가져옴
+        const sx = Math.min(w - 1.001, Math.max(0, x + dx)), sy = Math.min(h - 1.001, Math.max(0, y + dy));
+        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0;
+        const i00 = (y0 * w + x0) * 4, i10 = i00 + 4, i01 = i00 + w * 4, i11 = i01 + 4;
+        const o = (y * w + x) * 4;
+        for (let c = 0; c < 4; c++) {
+          d[o + c] = (s[i00 + c] * (1 - fx) + s[i10 + c] * fx) * (1 - fy) + (s[i01 + c] * (1 - fx) + s[i11 + c] * fx) * fy;
+        }
+      }
+    }
+    // 1회 재생 상태(클릭)는 3장을 합쳐 정지 이미지 한 장일 때와 같은 시간(600ms) 동안 보여줌
+    out.push({ bitmap: await createImageBitmap(img), duration: loop ? BOIL_MS : STATIC_ONE_SHOT_MS / BOIL_FRAMES });
+  }
+  return out;
 }
 
 async function decodeFrames(bytes, mime) {
@@ -245,7 +285,7 @@ async function loadPet() {
     const variants = [];
     for (const v of s.variants) {
       try {
-        variants.push({ file: v.file, frames: await decodeImage(v.data, v.mime) });
+        variants.push({ file: v.file, frames: await decodeImage(v.data, v.mime, { boil: data.boilStatic, loop: s.loop }) });
       } catch (e) {
         console.warn('이미지를 읽지 못해 건너뜀:', v.file, e); // 깨진 파일 하나 때문에 상태 전체가 빠지지 않게
       }

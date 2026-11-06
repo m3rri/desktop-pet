@@ -36,6 +36,7 @@ let settings = {
   speed: null,
   sleepAfterSec: null,
   shortcut: DEFAULT_SHORTCUT,
+  boilStatic: true,        // 정지 이미지 외곽선을 손그림처럼 일렁이게 (렌더러가 휘게 한 3장을 번갈아 보여줌)
 };
 
 // 보이기/숨기기: 사용자가 숨긴 것과 전체 화면 때문에 자동으로 숨긴 것을 따로 관리
@@ -311,6 +312,7 @@ function registerIpc() {
   // 렌더러가 시작할 때 캐릭터 이미지와 현재 상태를 요청
   ipcMain.handle('pet:load', () => ({
     id: pet.id,
+    boilStatic: settings.boilStatic,
     size: pet.size,
     baseFacing: pet.facing,
     facing: behavior.facing,
@@ -515,6 +517,10 @@ function applySetting(key, value) {
       setDisplaySetting(d);
       break;
     }
+    case 'boilStatic':
+      settings.boilStatic = !!value;
+      reloadPet(); // 렌더러가 이미지를 다시 디코딩하며 적용
+      break;
     case 'hideOnFullscreen':
       settings.hideOnFullscreen = !!value;
       checkFullscreen();
@@ -541,7 +547,7 @@ function settingsState() {
   return {
     version: app.getVersion(),
     pets: availablePets().map((p) => ({
-      id: p.id, name: p.name, builtin: p.builtin, removable: p.removable, missing: !!p.missing, dir: p.dir,
+      id: p.id, name: p.name, builtin: p.builtin, removable: p.removable, missing: !!p.missing, empty: !!p.empty, dir: p.dir,
       preview: p.missing ? null : previewOf(p.dir),
     })),
     petId: pet.id,
@@ -554,6 +560,7 @@ function settingsState() {
     shortcut: settings.shortcut,
     shortcutLabel: shortcutLabel(settings.shortcut),
     hideOnFullscreen: settings.hideOnFullscreen,
+    boilStatic: settings.boilStatic,
     fullscreenAvailable: !!fullscreenDisplayId,
     autoStart: { available: app.isPackaged, enabled: app.isPackaged && app.getLoginItemSettings().openAtLogin },
   };
@@ -618,6 +625,28 @@ function registerSettingsIpc() {
     const existing = availablePets().find((p) => path.resolve(p.dir).toLowerCase() === path.resolve(dir).toLowerCase());
     if (!existing) settings.petFolders.push(dir);
     return applySetting('pet', existing ? existing.id : `folder:${dir}`);
+  });
+
+  // 새 캐릭터 폴더: %APPDATA%\desktop-pet\pets\새 캐릭터 (N) 을 만들고 탐색기로 열어 줌.
+  // 목록에 바로 추가되며, idle 이미지를 넣기 전까지는 "이미지를 넣어 주세요"로 표시되고 선택할 수 없음
+  ipcMain.handle('settings:create-pet-folder', () => {
+    const root = path.join(app.getPath('userData'), 'pets');
+    let name = '새 캐릭터';
+    for (let n = 2; fs.existsSync(path.join(root, name)); n++) name = `새 캐릭터 ${n}`;
+    const dir = path.join(root, name);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'pet.json'), JSON.stringify({ name, size: 128, speed: 80, facing: 'right', sleepAfterSec: 600 }, null, 2) + '\n');
+    } catch (e) {
+      return { ok: false, error: `폴더를 만들지 못했습니다: ${e.message}` };
+    }
+    log('pet folder created:', dir);
+    settings.petFolders.push(dir);
+    saveSettings();
+    shell.openPath(dir);
+    updateTrayMenu();
+    notifySettingsChanged();
+    return { ok: true, dir };
   });
 
   ipcMain.handle('settings:remove-folder', (_e, id) => {

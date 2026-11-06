@@ -33,6 +33,14 @@ t('목록: 내장(default 먼저) → 사용자 폴더 → 추가 폴더, 중복
   assert.deepStrictEqual(pets.map((p) => p.id), ['builtin:default', 'builtin:cat', `folder:${userPetDir}`, `folder:${extra}`, `folder:${gone}`]);
   assert.deepStrictEqual(pets.map((p) => p.name), ['곰', '검은 고양이', '내 고양이', 'extra', 'gone']);
 });
+t('목록: 이미지를 아직 안 넣은 폴더는 empty (선택 불가)', () => {
+  const emptyDir = path.join(tmp, 'empty-new');
+  fs.mkdirSync(emptyDir);
+  const list = listPets({ builtinRoot, userPetDir, extraDirs: [emptyDir, gone] });
+  const e = list.find((p) => p.dir === emptyDir), g = list.find((p) => p.dir === gone);
+  assert.deepStrictEqual([e.missing, e.empty, g.missing, g.empty], [true, true, true, false]);
+  assert.notStrictEqual(choosePet(list, `folder:${emptyDir}`).dir, emptyDir);
+});
 t('목록: 지워진 폴더는 missing, 추가 폴더만 제거 가능', () => {
   assert.strictEqual(pets.find((p) => p.dir === gone).missing, true);
   assert.deepStrictEqual(pets.map((p) => p.removable), [false, false, false, true, true]);

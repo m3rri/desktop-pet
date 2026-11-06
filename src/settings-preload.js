@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   set: (key, value) => ipcRenderer.invoke('settings:set', key, value),
   addFolder: () => ipcRenderer.invoke('settings:add-folder'),
   removeFolder: (id) => ipcRenderer.invoke('settings:remove-folder', id),
+  createPetFolder: () => ipcRenderer.invoke('settings:create-pet-folder'),
   reloadPet: () => ipcRenderer.invoke('settings:reload-pet'),
   openFolder: (which) => ipcRenderer.invoke('settings:open-folder', which),
   pauseShortcut: () => ipcRenderer.invoke('settings:pause-shortcut'),
