@@ -165,6 +165,7 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 | 검은 고양이 (`assets/pets/cat`) | 하악질, 그루밍, 사냥 전 엉덩이 씰룩씰룩, 하트, 얼굴만 기울여 부비부비 |
 | 푸들 (`assets/pets/dog`) | 점프, 꼬리 흔들기, 고개 갸웃, 발라당 (고개 갸웃은 몸은 그대로 두고 머리만 기울임, 걷기·클릭 때 혀를 내밂, 신날 때 귀가 들썩임) |
 | 토끼 (`assets/pets/rabbit`) | 점프, 볼 감싸기, 하트, 당근 뇸뇸, 세수 (볼이 빵빵한 하얀 토끼, 이마와 볼이 움푹 나뉜 얼굴) |
+| 쿼카 (`assets/pets/quokka`) | 점프, 고개 갸웃, 볼 감싸기, 하트, 나뭇잎 오물오물 (평소에도 입을 벌리고 활짝 웃는 얼굴, 밝은 볼·턱, 동그란 귀, 가는 꼬리) |
 | 오목눈이 (`assets/pets/bird`) | 날갯짓, 날개 펴고 점프, 하트, 고개 갸웃 |
 
 꼬리는 진행 방향의 뒤쪽에 붙습니다. 원본 이미지는 오른쪽으로 가는 기준이라 꼬리를 왼쪽에 그리고, 왼쪽으로 갈 때는 앱이 좌우를 뒤집어 꼬리가 오른쪽에 옵니다. 직접 그린 캐릭터도 같은 기준(오른쪽을 보고, 꼬리는 왼쪽)으로 그리면 됩니다.
@@ -193,6 +194,7 @@ assets/pets/default/  기본 캐릭터 (곰)
 assets/pets/cat/      검은 고양이
 assets/pets/dog/      강아지 (푸들)
 assets/pets/rabbit/   토끼
+assets/pets/quokka/   쿼카
 assets/pets/bird/     오목눈이
 assets/tray.png   트레이 아이콘
 scripts/          기본 캐릭터·아이콘 생성 스크립트 (make-pets.js), PNG/APNG/ICO 인코더

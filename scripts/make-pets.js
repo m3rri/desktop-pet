@@ -1,9 +1,9 @@
-// 기본 캐릭터(곰, 검은 고양이, 강아지, 오목눈이, 토끼)의 상태별 이미지와 앱 아이콘을 만든다.
+// 기본 캐릭터(곰, 검은 고양이, 푸들, 오목눈이, 토끼, 쿼카)의 상태별 이미지와 앱 아이콘을 만든다.
 // 그림체: 손그림 느낌의 굵은 갈색 외곽선, 납작하고 둥근 떡 같은 몸, 작은 점 눈, 큰 분홍 볼터치, 파스텔 단색.
 // 외곽선은 펜으로 긋듯 그림: 굵기가 조금씩 변하고, 끝은 가늘어지며, 군데군데 끊겨 끝과 끝이 맞닿지 않음.
 // 선 위치도 미세하게 흔들어 매끈하지 않게 하고, 프레임마다 흔들림을 바꿔 선이 살짝 일렁이게 함 (선 떨림).
 //
-// 출력: assets/pets/default (곰), cat (고양이), dog (강아지), bird (오목눈이), rabbit (토끼), assets/icon.ico, icon.png, tray.png
+// 출력: assets/pets/default (곰), cat (고양이), dog (강아지), bird (오목눈이), rabbit (토끼), quokka (쿼카), assets/icon.ico, icon.png, tray.png
 // 모두 APNG(.png): 반투명 가장자리를 살리기 위해 (GIF는 계단 현상)
 //
 // 사용법: node scripts/make-pets.js [assets 폴더]
@@ -25,6 +25,8 @@ const PALETTE = {
   dog: { fur: [242, 222, 192], ear: [229, 202, 166], light: [251, 241, 224], paw: [251, 241, 224], tongue: [244, 128, 148] },
   // 토끼: 하얀 몸, 분홍 귀 안쪽
   rabbit: { fur: [255, 253, 252], light: [255, 244, 246], earIn: [248, 182, 196], paw: [255, 255, 255], nose: [246, 150, 170] },
+  // 쿼카: 따뜻한 회갈색 몸, 밝은 주둥이·앞발, 동그란 작은 귀
+  quokka: { fur: [196, 160, 126], light: [238, 218, 194], earIn: [222, 168, 150], paw: [240, 224, 204] },
   // 오목눈이: 흰 몸, 하늘색은 날개에만
   bird: { fur: [253, 253, 255], light: [238, 238, 242], feather: [212, 214, 224], blue: [132, 182, 236], blueDeep: [82, 128, 204], blueLight: [205, 226, 250], beak: [70, 66, 82], feet: [110, 92, 92] },
 };
@@ -315,6 +317,7 @@ const LAYOUT = {
   dog: { body: [0, -38, 46, 37, 2.35], eyeX: 14, eyeY: -44, blush: [21, -31, 6.5, 5] },
   // 토끼: 볼이 빵빵하도록 몸을 조금 넓게
   rabbit: { body: [0, -37, 48, 36, 2.3], eyeX: 14, eyeY: -41, blush: [29, -26, 10, 8] },
+  quokka: { body: [0, -38, 45, 37, 2.3], eyeX: 13, eyeY: -43, blush: [26, -29, 7.5, 6] },
   // 새: 동그란 공 모양, 발이 보이도록 몸을 띄움
   bird: { body: [0, -50, 42, 39, 2.05], eyeX: 12, eyeY: -56, blush: [22, -46, 6, 4.5] },
 };
@@ -363,8 +366,9 @@ function drawPet(px, kind, {
     return resample(smoothPts(pts, 2, 99), 1.4); // 점 간격을 다른 캐릭터 윤곽(약 1.4)과 맞춰야 선 떨림이 같은 느낌
   };
   const bodyPts = kind === 'dog' ? curlPts(blobPts(bx, by, brx - 2, bry - 2, bodyOpt), 2.8, 15)
-    : kind === 'rabbit' ? rabbitPts() : blobPts(bx, by, brx, bry, bodyOpt);
-  const bodyShape0 = kind === 'dog' || kind === 'rabbit' ? polygon(bodyPts) : blob(bx, by, brx, bry, bodyOpt);
+    : kind === 'rabbit' ? rabbitPts()
+    : kind === 'quokka' ? blobPts(bx, by, brx, bry, bodyOpt).map(([x, y]) => [x * (1 + 0.1 * Math.max(-1, Math.min(0.6, (y - by) / bry))), y]) : blobPts(bx, by, brx, bry, bodyOpt);
+  const bodyShape0 = kind === 'dog' || kind === 'rabbit' || kind === 'quokka' ? polygon(bodyPts) : blob(bx, by, brx, bry, bodyOpt);
   const bodyPtsT = bend(bodyPts), bodyShape = headTilt ? polygon(bodyPtsT) : bodyShape0;
 
   // ----- 몸 뒤: 꼬리, 펼친 날개, 귀 -----
@@ -393,6 +397,11 @@ function drawPet(px, kind, {
     const [px0, py0] = center[2];
     const pom = curlPts(blobPts(px0, py0 - 2, 7, 7, { phase: ph }), 1.6, 9, boil);
     part(F, polygon(pom), C.fur, pom, { r: 1.8, seed: 14, boil, gaps: [[0.2, 0.1]] });
+  }
+  if (kind === 'quokka') { // 짧고 가는 꼬리 (진행 방향 뒤쪽 아래)
+    const center = back(rotPts([[30, -10], [42, -6], [52, -4], [58, -6]], [30, -10], tail * 0.4));
+    const tl = tubePts(center, 3.6);
+    part(F, polygon(tl), C.fur, tl, { r: 1.6, seed: 13, boil, gaps: [[0.95, 0.07]] });
   }
   if (kind === 'rabbit') { // 동그란 솜뭉치 꼬리 (몸 뒤 아래쪽, 진행 방향 뒤쪽)
     const [cx, cy] = back(rotPts([[42, -14]], [30, -14], tail))[0];
@@ -433,6 +442,11 @@ function drawPet(px, kind, {
       const e = B(ex, ey, 11, 10, { wob: wob * 1.5, phase: ph + side });
       part(FH, e.shape, C.fur, e.pts, { seed: 3 + side, boil, gaps: [[side > 0 ? 0.8 : 0.62, 0.09]] });
       FH(blob(ex, ey + 1, 5.5, 5, { wob, phase: ph }), C.earIn);
+    } else if (kind === 'quokka') { // 머리 양옆 위의 작고 동그란 귀
+      const ex = side * 24, ey = -74;
+      const e = B(ex, ey, 10, 10, { wob: wob * 1.5, phase: ph + side });
+      part(FH, e.shape, C.fur, e.pts, { seed: 3 + side, boil, gaps: [[side > 0 ? 0.8 : 0.62, 0.09]] });
+      FH(blob(ex, ey + 1.5, 4.6, 5.4, { wob, phase: ph }), C.earIn);
     } else if (kind === 'rabbit') {
       const ang = side * (0.1 + 0.22 * Math.min(perk, 1.2)) + ears * 0.02 * side;
       const pivot = [side * 15, -64];
@@ -463,7 +477,8 @@ function drawPet(px, kind, {
     for (const [x, y, w] of [[-14, -33, 3], [-4, -29, 3.2], [7, -32, 3], [16, -27, 2.8], [-18, -22, 2.8], [-7, -19, 3], [5, -21, 3.2], [15, -17, 2.6], [-1, -12, 2.6]]) tuft(x + look * 0.3, y, w);
   } else {
     // 주둥이 쪽 밝은 털
-    FH(blob(look, -29, 15, 10, { wob, phase: ph + 2 }), C.light, kind === 'bear' ? 1 : 0.9);
+    if (kind === 'quokka') FH(both(blob(look, -22, 27, 17, { wob, phase: ph + 2 }), bodyShape), C.light); // 쿼카는 볼·턱 아래쪽이 넓게 밝은 색
+    else FH(blob(look, -29, 15, 10, { wob, phase: ph + 2 }), C.light, kind === 'bear' ? 1 : 0.9);
   }
 
   // 볼터치
@@ -472,7 +487,7 @@ function drawPet(px, kind, {
 
   // ----- 눈 -----
   // 웃는 눈(happy)은 캐릭터마다 다른 모양: 고양이 반달 눈웃음, 곰 하트 눈, 강아지 초롱초롱 눈, 새 눈꼬리 없는 반달
-  const HAPPY = { cat: 'crescent', bear: 'heart', dog: 'sparkle', bird: 'crescent', rabbit: 'crescent' };
+  const HAPPY = { cat: 'crescent', bear: 'heart', dog: 'sparkle', bird: 'crescent', rabbit: 'crescent', quokka: 'crescent' };
   if (eyes === 'happy') eyes = HAPPY[kind];
   const ex = (s) => s * L.eyeX + look, ey = L.eyeY;
   const eyeColor = kind === 'cat' ? C.eye : INK;
@@ -552,6 +567,9 @@ function drawPet(px, kind, {
     else if (kind === 'rabbit') {
       FH(blob(look, -34.4, 2.8, 2, { n: 2.2 }), C.nose);
       FH(blob(look - 0.8, -35, 0.8, 0.5, {}), [255, 255, 255], 0.85);
+    } else if (kind === 'quokka') {
+      FH(blob(look, -35, 3.4, 2.6, { n: 2.3 }), INK);
+      FH(blob(look - 1, -35.8, 1, 0.65, {}), [255, 255, 255], 0.85);
     } else if (kind === 'bear') {
       FH(blob(look, -34, 3.6, 2.6, { n: 2.3 }), INK);
       FH(blob(look - 1.1, -34.8, 1.1, 0.7, {}), [255, 255, 255], 0.85);
@@ -561,7 +579,18 @@ function drawPet(px, kind, {
     }
     const mouthInk = kind === 'cat' ? C.eye : INK;
     const my = kind === 'bear' || kind === 'rabbit' ? 1.2 : kind === 'dog' ? 2.2 : 0;
-    const w = () => FH(stroke([[look - 5, -31 + my], [look - 2.5, -28.5 + my], [look, -31 + my], [look + 2.5, -28.5 + my], [look + 5, -31 + my]], 1.15), mouthInk);
+    // 쿼카: 세상에서 가장 행복한 동물 → ω 대신 양끝이 올라간 큰 미소
+    // 쿼카는 웃는 얼굴이 핵심이라 평소에도 입을 벌리고 활짝 웃음: 양끝이 올라간 입, 윗니 두 개, 작은 혀
+    const w = kind === 'quokka' ? () => {
+      FH(stroke([[look, -32.5], [look, -30.6]], 0.85), INK);
+      const m = smoothPts([[look - 10, -32.5], [look - 5, -30.4], [look, -30], [look + 5, -30.4], [look + 10, -32.5],
+        [look + 8, -27], [look + 4.5, -23], [look, -22], [look - 4.5, -23], [look - 8, -27]], 2, 1);
+      const mouthShape = polygon(m);
+      FH(mouthShape, [92, 44, 46]);
+      FH(both(mouthShape, blob(look, -23.2, 5.4, 3.2, {})), [240, 128, 140]);
+      for (const sd of [-1, 1]) FH(both(mouthShape, polygon([[look + sd * 0.3, -31], [look + sd * 3, -31], [look + sd * 2.8, -27], [look + sd * 0.4, -27]])), [255, 255, 255]);
+      FH(sketchLine(m, { r: 0.8, rough: 0.2, seed: 21, boil, gaps: [[0.999, 0.001]] }), INK);
+    } : () => FH(stroke([[look - 5, -31 + my], [look - 2.5, -28.5 + my], [look, -31 + my], [look + 2.5, -28.5 + my], [look + 5, -31 + my]], 1.15), mouthInk);
     if (mouth === 'tongue') { // 강아지: ω 입 아래로 혀를 쏙 내밀기
       const ty = -21.5 + my, tongue = B(look, ty, 7, 10, { phase: ph }); // 혀를 크게 (귀여움 포인트)
       part(FH, both(tongue.shape, { bbox: tongue.shape.bbox, inside: (x, y) => y > -28.5 + my }), C.tongue,
@@ -570,6 +599,7 @@ function drawPet(px, kind, {
       w();
     } else if (mouth === 'w') w();
     else if (mouth === 'open') { FH(blob(look, -29 + my, 4, 4.6, {}), INK); FH(blob(look, -27.6 + my, 2.4, 2, {}), [235, 110, 120]); }
+    else if (mouth === 'small' && kind === 'quokka') FH(stroke([[look - 5, -31], [look - 2.5, -28.6], [look, -28.3], [look + 2.5, -28.6], [look + 5, -31]], 1.1), INK); // 자면서도 미소
     else if (mouth === 'small') FH(stroke([[look - 2, -30 + my], [look + 2, -30 + my]], 1.1), mouthInk);
     else if (mouth === 'yawn') { // 하품: 세로로 길게 벌린 입
       const o = B(look, -25 + my, 5.2, 6.8, { phase: ph });
@@ -684,7 +714,7 @@ const deg = (d) => (d * Math.PI) / 180;
 const frame = (draw) => { const px = Buffer.alloc(CW * CH * 4); draw(px); return px; };
 
 // ---------- 상태별 이미지 ----------
-const NAMES = { bear: '곰', cat: '검은 고양이', dog: '푸들', bird: '오목눈이', rabbit: '토끼' };
+const NAMES = { bear: '곰', cat: '검은 고양이', dog: '푸들', bird: '오목눈이', rabbit: '토끼', quokka: '쿼카' };
 
 function makeSet(kind, outDir, clicks) {
   fs.mkdirSync(outDir, { recursive: true });
@@ -776,6 +806,12 @@ const CLICKS = {
       heart(px, 64, 26 - t * 12, 5 + t * 3, i === 6 ? 0.5 : 1, i);
     }
   })), 90),
+  // 쿼카: 두 앞발로 나뭇잎을 들고 오물오물. 한 입씩 줄어듦
+  leaf: (kind, D) => encodeAPNG([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
+    const bite = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4][i], chew = i % 2 === 1;
+    return D({ boil: i, eyes: i === 0 ? 'open' : 'crescent', mouth: chew ? 'munch' : 'w', blush: 1 + 0.1 * Math.min(bite, 2),
+      pose: { sx: chew ? 1.03 : 1, sy: chew ? 0.98 : 1 }, pawPos: [[-10, -17, 5.6, 4.8], [11, -17, 5.6, 4.8]], props: (ctx) => leafProp(ctx, bite) });
+  }), 120),
   // 곰: 꿀단지를 안고 앞발로 꿀을 찍어 할짝할짝
   honey: (kind, D) => encodeAPNG([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
     const atMouth = [0, 0, 1, 1, 0, 1, 1, 0, 0, 0][i], lick = atMouth && i % 2 === 0, dip = !atMouth && i >= 1 && i <= 8;
@@ -858,6 +894,16 @@ function honeyPot({ F, part, ph, boil }) {
   part(F, polygon(rim), [255, 196, 64], rim, { r: 1.2, rough: 0.2, seed: 86, boil, gaps: [[0.99, 0.01]] });
   F(polygon(smoothPts([[-9, -20], [-8, -14], [-6.5, -12.5], [-5, -14], [-4, -19]], 2, 1)), [255, 196, 64]); // 흘러내린 꿀
 }
+// 나뭇잎: 세로로 든 초록 잎. 윗부분(입 쪽)부터 bite만큼 줄어듦
+function leafProp({ F, part, boil }, bite) {
+  const top = -32 + bite * 3.2, bottom = -8;
+  const mid = (top + bottom) / 2, h = bottom - top;
+  const leaf = smoothPts([[0, bottom], [-10, mid + h * 0.15], [-7, top + h * 0.2], bite ? [-3, top] : [0, top - 2], ...(bite ? [[0, top + 1.5], [3, top]] : []), [7, top + h * 0.2], [10, mid + h * 0.15]], 2, 1);
+  part(F, polygon(leaf), [128, 196, 108], leaf, { r: 1.2, rough: 0.3, seed: 92, boil, gaps: [[0.5, 0.04]] });
+  F(stroke([[0, bottom - 1], [0, top + 2]], 0.6), [92, 156, 80]); // 잎맥
+  for (const t of [0.35, 0.6]) { const y = bottom - h * t; if (y > top + 2) for (const sd of [-1, 1]) F(stroke([[0, y], [sd * 4, y - 3]], 0.5), [92, 156, 80]); }
+  F(stroke([[0, bottom], [1, bottom + 4]], 0.9), [92, 156, 80]); // 꼭지
+}
 // 당근: 끝(입 쪽)이 bite만큼 줄어듦. 밑동에 초록 잎
 function carrotProp({ F, part, ph, boil }, bite, i) {
   const base = [31, -9], tip0 = [2, -27];
@@ -884,6 +930,7 @@ makeSet('cat', path.join(ASSETS, 'pets', 'cat'), ['hiss', 'groom', 'hunt', 'hear
 makeSet('dog', path.join(ASSETS, 'pets', 'dog'), ['jump', 'tail', 'headTilt', 'rollover']);
 makeSet('bird', path.join(ASSETS, 'pets', 'bird'), ['flap', 'birdJump', 'birdHeart', 'headTilt']);
 makeSet('rabbit', path.join(ASSETS, 'pets', 'rabbit'), ['jump', 'blush', 'heart', 'carrot', 'wash']);
+makeSet('quokka', path.join(ASSETS, 'pets', 'quokka'), ['jump', 'headTilt', 'blush', 'heart', 'leaf']);
 
 // ---------- 앱 아이콘, 트레이 아이콘 ----------
 // 크기마다 다시 그려야 작은 크기에서도 선명함. 곰이 128 캔버스에서 차지하는 영역(약 x 24~104, y 59~119)을 가운데에 맞춤

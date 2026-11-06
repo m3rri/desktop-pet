@@ -49,7 +49,7 @@ function listPets({ builtinRoot, userPetDir, extraDirs = [], log }) {
   let builtins = [];
   try { builtins = fs.readdirSync(builtinRoot); } catch (_) { /* 없음 */ }
   // 기본 제공 캐릭터 순서: 곰, 고양이, 강아지, 토끼, 오목눈이 (그 밖의 폴더는 이름순으로 뒤에)
-  const ORDER = ['default', 'cat', 'dog', 'rabbit', 'bird'];
+  const ORDER = ['default', 'cat', 'dog', 'rabbit', 'quokka', 'bird'];
   const rank = (n) => (ORDER.includes(n) ? ORDER.indexOf(n) : ORDER.length);
   builtins.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   for (const name of builtins) {
