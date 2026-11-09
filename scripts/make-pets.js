@@ -464,6 +464,16 @@ function drawPet(px, kind, {
 
   // ----- 몸 -----
   part(F, bodyShape, C.fur, bodyPtsT, { seed: 1, boil, gaps: [[0.85, 0.042], [0.4, 0.03]] });
+  // 쿼카: 머리 위에 먹던 나뭇잎 한 장 (한쪽이 베어 먹혀 움푹). 모든 상태에서 보이고 고개를 기울이면 같이 기울어짐
+  if (kind === 'quokka') {
+    const base = [-5, -70], ang = -0.5, L = 24, W = 7.6;
+    const at = (t, w) => { const c = Math.cos(ang), sn = Math.sin(ang); const x = L * t, y = w; return [base[0] + c * x - sn * y, base[1] + sn * x + c * y]; };
+    const bite = [0.62, 0.78, 0.9].map((t, k) => at(t, -W * [0.35, 0.05, 0.4][k])); // 위쪽 가장자리를 동그랗게 베어 문 자리
+    const leaf = smoothPts([at(0, 0), at(0.3, W), at(0.65, W * 0.85), at(1, 0), at(0.93, -W * 0.45), ...bite.reverse(), at(0.45, -W * 0.95), at(0.2, -W * 0.7)], 2, 1);
+    part(FH, polygon(leaf), [128, 196, 108], leaf, { r: 1.2, rough: 0.3, seed: 93, boil, gaps: [[0.55, 0.04]] });
+    FH(stroke([at(-0.05, 0), at(0.85, 0)], 0.55), [92, 156, 80]); // 잎맥
+    FH(stroke([at(0, 0), at(-0.18, 0.6)], 0.9), [92, 156, 80]);    // 꼭지
+  }
   // 발라당 누웠을 때 보이는 밝은 배
   if (belly) F(both(blob(0, -10, 27, 14, { wob, phase: ph }), bodyShape), C.light);
 
@@ -568,8 +578,9 @@ function drawPet(px, kind, {
       FH(blob(look, -34.4, 2.8, 2, { n: 2.2 }), C.nose);
       FH(blob(look - 0.8, -35, 0.8, 0.5, {}), [255, 255, 255], 0.85);
     } else if (kind === 'quokka') {
-      FH(blob(look, -35, 3.4, 2.6, { n: 2.3 }), INK);
-      FH(blob(look - 1, -35.8, 1, 0.65, {}), [255, 255, 255], 0.85);
+      // 쿼카는 크고 까만 코가 핵심 (다른 캐릭터의 약 2배). 입과 겹치지 않게 조금 위로
+      FH(blob(look, -37.3, 6.8, 5.2, { n: 2.3 }), INK);
+      FH(blob(look - 2, -38.9, 2, 1.3, {}), [255, 255, 255], 0.85);
     } else if (kind === 'bear') {
       FH(blob(look, -34, 3.6, 2.6, { n: 2.3 }), INK);
       FH(blob(look - 1.1, -34.8, 1.1, 0.7, {}), [255, 255, 255], 0.85);
@@ -582,7 +593,7 @@ function drawPet(px, kind, {
     // 쿼카: 세상에서 가장 행복한 동물 → ω 대신 양끝이 올라간 큰 미소
     // 쿼카는 웃는 얼굴이 핵심이라 평소에도 입을 벌리고 활짝 웃음: 양끝이 올라간 입, 윗니 두 개, 작은 혀
     const w = kind === 'quokka' ? () => {
-      FH(stroke([[look, -32.5], [look, -30.6]], 0.85), INK);
+      FH(stroke([[look, -32.6], [look, -30.6]], 0.85), INK);
       const m = smoothPts([[look - 10, -32.5], [look - 5, -30.4], [look, -30], [look + 5, -30.4], [look + 10, -32.5],
         [look + 8, -27], [look + 4.5, -23], [look, -22], [look - 4.5, -23], [look - 8, -27]], 2, 1);
       const mouthShape = polygon(m);
