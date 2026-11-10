@@ -72,5 +72,14 @@ t('설정값 우선, null이면 pet.json 값', () => {
   assert.deepStrictEqual(effectiveValues(base, {}), base);
 });
 
+t('더블클릭: dblclick 이미지와 pet.json 대사 (문자열이 아니거나 빈 대사는 제외)', () => {
+  const dir = mk(path.join(tmp, 'talk'), ['idle.png', 'dblclick_1.png', 'dblclick_2.png'], { phrases: ['안녕', '  ', 3, ' 반가워 '] });
+  const loaded = loadPetFromDir(dir);
+  assert.strictEqual(loaded.states.dblclick.loop, false);
+  assert.strictEqual(loaded.states.dblclick.variants.length, 2);
+  assert.deepStrictEqual(loaded.phrases, ['안녕', '반가워']);
+  assert.deepStrictEqual(loadPetFromDir(mk(path.join(tmp, 'quiet'), ['idle.png'])).phrases, []);
+});
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${n} passed`);

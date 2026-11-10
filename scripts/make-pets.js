@@ -726,6 +726,15 @@ const frame = (draw) => { const px = Buffer.alloc(CW * CH * 4); draw(px); return
 
 // ---------- 상태별 이미지 ----------
 const NAMES = { bear: '곰', cat: '검은 고양이', dog: '푸들', bird: '오목눈이', rabbit: '토끼', quokka: '쿼카' };
+// 더블클릭하면 말풍선에 무작위로 보여줄 대사 (pet.json phrases)
+const PHRASES = {
+  bear: ['꿀 먹고 싶다', '오늘도 수고했어!', '하암… 졸려', '같이 쉬었다 하자', '꿀단지 어디 뒀더라?'],
+  cat: ['냥?', '쓰다듬어도 돼', '간식 시간 아니야?', '집사, 일 열심히 해', '흥, 별로 안 반가워'],
+  dog: ['산책 가자!', '헥헥 신난다!', '놀아줘 놀아줘!', '오늘 최고야!', '꼬리가 멈추질 않아'],
+  rabbit: ['당근 있어?', '깡총!', '오늘도 힘내!', '귀 쫑긋', '세수 다 했어'],
+  quokka: ['오늘도 웃자!', '나뭇잎 맛있다', '행복은 가까이에 있어', '헤헤', '같이 사진 찍을래?'],
+  bird: ['짹짹!', '날씨 좋다!', '조금만 쉬어가', '포르르', '오늘 하늘 봤어?'],
+};
 
 function makeSet(kind, outDir, clicks) {
   fs.mkdirSync(outDir, { recursive: true });
@@ -761,7 +770,7 @@ function makeSet(kind, outDir, clicks) {
   })), 160));
 
   fs.writeFileSync(path.join(outDir, 'pet.json'), JSON.stringify({
-    name: NAMES[kind], size: 128, speed: 80, facing: 'right', sleepAfterSec: 600,
+    name: NAMES[kind], size: 128, speed: 80, facing: 'right', sleepAfterSec: 600, phrases: PHRASES[kind],
   }, null, 2) + '\n');
 }
 

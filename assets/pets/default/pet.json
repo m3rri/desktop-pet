@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "꿀 먹고 싶다",
+    "오늘도 수고했어!",
+    "하암… 졸려",
+    "같이 쉬었다 하자",
+    "꿀단지 어디 뒀더라?"
+  ]
 }

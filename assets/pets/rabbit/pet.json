@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "당근 있어?",
+    "깡총!",
+    "오늘도 힘내!",
+    "귀 쫑긋",
+    "세수 다 했어"
+  ]
 }

@@ -18,7 +18,7 @@ let interactive = false; // false 이면 클릭이 뒤 창으로 통과
 const HIT_ALPHA = 40;    // 이 값보다 불투명한 픽셀만 클릭 가능 (0~255)
 
 const STATIC_ONE_SHOT_MS = 600; // 1회 재생 상태인데 정지 이미지 한 장뿐일 때 보여줄 시간
-const ONE_SHOT_STATES = new Set(['click']);
+const ONE_SHOT_STATES = new Set(['click', 'dblclick']);
 
 // ---------- 디코딩 ----------
 // 프레임마다 투명도(alpha) 값만 따로 저장해 두고 클릭 판정에 사용
@@ -217,9 +217,29 @@ function loop(now) {
 }
 
 // ---------- 마우스 ----------
-// 4px 이상 움직이면 드래그, 아니면 클릭
+// 4px 이상 움직이면 드래그, 아니면 클릭.
+// 더블클릭과 구분하려고 클릭은 DBL_MS 동안 기다렸다가 두 번째 클릭이 없을 때만 보냄 (A안).
+// 클릭 반응이 그만큼 늦어지는 대신, 더블클릭할 때 클릭 동작이 먼저 시작되지 않음
+const DBL_MS = 250;
+const DBL_DIST = 8;      // 두 클릭 위치가 이보다 멀면 더블클릭이 아님 (px)
 let down = null;
 let dragging = false;
+let pendingClick = null; // { x, y, timer } 두 번째 클릭을 기다리는 첫 번째 클릭
+
+function cancelPendingClick() {
+  if (pendingClick) clearTimeout(pendingClick.timer);
+  pendingClick = null;
+}
+
+function handleClick({ x, y }) {
+  if (pendingClick && Math.hypot(x - pendingClick.x, y - pendingClick.y) <= DBL_DIST) {
+    cancelPendingClick();
+    window.pet.dblclick();
+    return;
+  }
+  cancelPendingClick();
+  pendingClick = { x, y, timer: setTimeout(() => { pendingClick = null; window.pet.click(); }, DBL_MS) };
+}
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
@@ -232,6 +252,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (!down || dragging) return;
   if (Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
     dragging = true;
+    cancelPendingClick(); // 클릭하고 바로 끌기 시작하면 클릭 동작은 취소
     window.pet.dragStart(); // 이후 이동은 메인 프로세스가 커서를 따라가며 처리
   }
 });
@@ -239,7 +260,7 @@ canvas.addEventListener('pointermove', (e) => {
 function endPointer(isCancel) {
   if (!down) return;
   if (dragging) window.pet.dragEnd();
-  else if (!isCancel) window.pet.click();
+  else if (!isCancel) handleClick(down);
   down = null;
   dragging = false;
   updateInteractive();

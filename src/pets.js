@@ -7,6 +7,7 @@ const STATE_DEFAULTS = {
   idle: { loop: true },
   walk: { loop: true },
   click: { loop: false },
+  dblclick: { loop: false }, // 없어도 됨 (더블클릭하면 말풍선만 뜸)
   sleep: { loop: true },
   drag: { loop: true },
 };
@@ -116,6 +117,8 @@ function loadPetFromDir(dir, { id = `folder:${dir}`, log = () => {} } = {}) {
       speed: num(conf.speed, 0) ?? BASE_DEFAULTS.speed,
       sleepAfterSec: num(conf.sleepAfterSec, 0) ?? BASE_DEFAULTS.sleepAfterSec,
     },
+    // 더블클릭하면 말풍선에 무작위로 보여줄 대사. 없으면 앱 기본 대사
+    phrases: Array.isArray(conf.phrases) ? conf.phrases.filter((p) => typeof p === 'string' && p.trim()).map((p) => p.trim()) : [],
     states,
   };
 }

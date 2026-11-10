@@ -1,20 +1,20 @@
 # 인수인계 — 집에서 이어서 작업하기
 
-마지막 갱신: 2026-11-09 (v1.2.2 커밋 시점)
+마지막 갱신: 2026-11-10 (v1.3.0 커밋 시점)
 
-다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업(더블클릭 동작)을 정리했다.
+다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업(퇴근 시간 알림)을 정리했다.
 전체 계획과 지금까지의 변경 이력은 [plan.md](plan.md), 사용법은 [README.md](../README.md) 참고.
 
 ---
 
 ## 1. 현재 상태
 
-- 버전: **1.2.2** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
+- 버전: **1.3.0** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
 - 기본 캐릭터 6종: 곰(default), 검은 고양이(cat), 푸들(dog), 토끼(rabbit), 쿼카(quokka), 오목눈이(bird)
-- 설치 프로그램: `dist/installer/DesktopPet-Setup-1.2.2.exe` (dist는 git에 올리지 않음)
+- 설치 프로그램: `dist/installer/DesktopPet-Setup-1.3.0.exe` (dist는 git에 올리지 않음)
 - GitHub: `m3rri/desktop-pet` (개인 계정, main 브랜치). 커밋 후 push는 직접 함
 
-### 클릭 동작 (1.2.2 기준, 클릭하면 이 중 하나를 무작위로 재생)
+### 클릭 동작 (1.3.0 기준, 클릭하면 이 중 하나를 무작위로 재생)
 
 | 캐릭터 | 클릭 동작 |
 |---|---|
@@ -53,6 +53,7 @@ npm test       # 모니터 선택·캐릭터 폴더 테스트 (27개)
 | `src/pets.js` | 캐릭터 폴더 읽기. 상태별 이미지 파일 찾기, 기본값(`STATE_DEFAULTS`) |
 | `src/displays.js` | 모니터 식별·저장·복원 (테스트 있음) |
 | `src/fullscreen.js` | koffi로 user32 호출해 전체 화면 앱 감지 |
+| `src/bubble.*` | 말풍선 창. 글자 크기를 재고 손그림 테두리를 그림 |
 | `src/settings.*` | 설정 창 (캐릭터, 움직임, 화면, 기타) |
 | `scripts/make-pets.js` | 기본 캐릭터 이미지와 앱 아이콘을 코드로 그려서 `assets/`에 생성 |
 | `scripts/image-encode.js` | PNG·APNG·ICO 인코더 |
@@ -108,43 +109,36 @@ npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-
 
 ---
 
-## 6. 다음 작업: 더블클릭 동작
+## 6. 더블클릭 말풍선 (1.3.0)
 
-캐릭터를 더블클릭하면 클릭과 다른 동작을 재생하고 싶음. 어떤 동작을 넣을지는 아직 정하지 않았음.
-
-### 먼저 정해야 할 것: 첫 번째 클릭을 어떻게 처리할지
-
-지금은 마우스를 떼는 순간 바로 클릭 동작을 재생한다. 그래서 더블클릭을 그대로 받으면 첫 번째 클릭 동작이 먼저 시작된다.
-
-| 방식 | 동작 | 장단점 |
-|---|---|---|
-| A. 기다렸다가 판단 | 클릭 후 약 250ms 동안 두 번째 클릭을 기다리고, 안 오면 클릭 동작, 오면 더블클릭 동작 | 동작이 섞이지 않음. 대신 한 번 클릭할 때마다 반응이 약 0.25초 늦어짐 |
-| B. 바로 재생 후 전환 | 클릭 동작을 바로 시작하고, 짧은 시간 안에 두 번째 클릭이 오면 더블클릭 동작으로 바꿔 처음부터 재생 | 클릭 반응은 지금처럼 빠름. 대신 클릭 동작 첫 프레임이 잠깐 보였다가 바뀜 |
-
-### 고칠 곳
-
-1. `src/pets.js` — `STATE_DEFAULTS`에 `dblclick: { loop: false }` 추가
-2. `src/renderer.js`
-   - `ONE_SHOT_STATES`에 `'dblclick'` 추가
-   - `endPointer()`에서 직전 클릭 시각과 위치를 기억해 더블클릭 판정 (DOM `dblclick` 이벤트 대신 지금처럼 pointer 이벤트로 직접 판정하는 편이 드래그 구분 로직과 맞음)
-   - 더블클릭 이미지가 없는 캐릭터(사용자 캐릭터 등)는 click 동작으로 대신할지 정하기. 지금 규칙은 "없는 상태는 idle 이미지"라서 그대로 두면 더블클릭해도 아무 반응이 없어 보임
-3. `src/preload.js` — `dblclick: () => ipcRenderer.send('pet:dblclick')`
-4. `src/main.js`
-   - `ipcMain.on('pet:dblclick')` → `setState('dblclick', { force: true })`
-   - `pet:anim-end`에서 `dblclick`이 끝났을 때도 `idle`로 되돌리기
-   - 자는 중 판정(`behavior.state !== 'click'`)처럼 `click`을 직접 비교하는 곳에 `dblclick`도 넣기
-5. `scripts/make-pets.js` — 캐릭터별 더블클릭 동작을 만들고 `dblclick.png`(여러 개면 `dblclick_1.png` …)로 저장. `makeSet`에 더블클릭 목록을 받는 인자 추가
-6. `test/pets.test.js` — `dblclick` 파일을 찾는지 테스트 추가
-7. `README.md`의 캐릭터 폴더 설명과 `plan.md`에 반영, 버전 1.3.0
+- 클릭은 0.25초 동안 두 번째 클릭을 기다렸다가 없으면 클릭 동작 (A안). `src/renderer.js`의 `handleClick()`, `DBL_MS`
+- 더블클릭 → 메인 `talk()`: 걷기·잠을 멈추고 `pet.phrases`(pet.json `phrases`) 중 하나를 `showBubble(text, ms)`로 띄움. 캐릭터 폴더에 `dblclick` 이미지가 있으면 그 동작도 재생
+- 말풍선은 캐릭터 창과 별도의 투명 창(`src/bubble.*`). 순서: 메인이 `bubble:show`로 문구 전달 → 말풍선 창이 글자 크기를 재서 `bubble:size` → 메인이 `positionBubble()`로 캐릭터 머리 위에 놓고 `bubble:tail`로 꼬리 위치 전달 → 손그림 테두리를 그림
+- 폰트는 `assets/fonts/gaegu` (Gaegu, SIL OFL 1.1). 폰트를 바꾸려면 OFL 같은 재배포 가능 라이선스인지 확인하고, 라이선스 문서를 같이 넣을 것
+- 기본 캐릭터 대사는 `scripts/make-pets.js`의 `PHRASES`에서 고치고 `npm run make-pets` (pet.json에 들어감)
 
 ---
 
-## 7. 새 세션 시작용 프롬프트
+## 7. 다음 작업: 퇴근 시간 알림
+
+퇴근 시간이 가까워지면 캐릭터가 말풍선으로 알려주는 기능. 말풍선 글자를 이미지가 아닌 글자로 만든 이유가 이것.
+아직 정하지 않은 것:
+
+- 퇴근 시간 설정 방법 (설정 화면에 시각 입력, 요일별 여부)
+- 언제 알릴지 (예: 30분 전, 10분 전, 정각) 와 문구 (예: "퇴근까지 10분!")
+- 더블클릭했을 때 남은 시간을 보여줄지
+- 알림 말풍선을 더 오래 띄우거나 동작(점프 등)을 같이 재생할지
+
+구현은 메인 프로세스에서 1분마다 시각을 확인해 `showBubble(text, ms)`를 부르는 방식이면 됨.
+
+---
+
+## 8. 새 세션 시작용 프롬프트
 
 ```
 바탕화면에 캐릭터가 돌아다니는 Electron 앱(desktop-pet)을 이어서 작업하려고 해.
 docs/handoff.md에 현재 상태, 구조, 그림 생성 방법, 다음 작업이 정리돼 있어.
 
-이번에는 캐릭터를 더블클릭했을 때 동작을 추가하고 싶어.
-handoff.md 6장의 "첫 번째 클릭 처리 방식"부터 같이 정하고, 캐릭터별 더블클릭 동작 아이디어도 같이 논의하자.
+이번에는 퇴근 시간 알림 기능을 추가하고 싶어.
+handoff.md 7장의 정하지 않은 것부터 같이 정하자.
 ```

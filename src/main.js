@@ -25,6 +25,7 @@ const FULLSCREEN_CHECK_MS = 1000;
 let win = null;
 let tray = null;
 let settingsWin = null;
+let bubbleWin = null;    // 말풍선 창 (캐릭터 창과 따로 띄워 캐릭터 위에 붙여 다님)
 let pet = null;          // 지금 캐릭터 (pets.js loadPetFromDir 결과 + size/speed/sleepAfterSec 실제 적용값)
 let quitting = false;
 let settings = {
@@ -185,6 +186,7 @@ function reloadPet() {
   resizePetWindow(oldSize);
   if (tray) tray.setToolTip(`Desktop Pet - ${pet.name}`);
   sendToPet('pet:reload'); // 렌더러가 pet:load로 이미지를 다시 받아 디코딩
+  hideBubble();
   if (behavior.state === 'walk') { setState('idle'); scheduleNextMove(); }
 }
 
@@ -200,6 +202,7 @@ const behavior = {
   dragging: false,
   dragOffset: { x: 0, y: 0 },
   cursorInside: false,
+  talkUntil: 0,        // 말풍선을 띄운 동안은 걷기 시작하지 않음
 };
 
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -232,6 +235,85 @@ function syncPositionFromWindow() {
 // 창 크기를 함께 지정: DPI 배율이 다른 모니터로 넘어갈 때 창 크기가 변하는 문제 방지
 function moveWindow(x, y) {
   win.setBounds({ x: Math.round(x), y: Math.round(y), width: pet.size, height: pet.size });
+  if (bubble.visible) positionBubble();
+}
+
+// ---------- 말풍선 (더블클릭) ----------
+// 글자는 이미지가 아니라 bubble.html에서 글자로 그림 (나중에 퇴근 시간 알림처럼 매번 바뀌는 문구를 쓰기 위해)
+const DEFAULT_PHRASES = ['안녕!', '오늘도 수고했어', '쉬엄쉬엄 해', '물 한 잔 마시자', '기지개 한 번 켜자', '뭐 해?'];
+const bubble = { visible: false, width: 0, height: 0, tailX: null, hideTimer: null, ms: 0, lastPhrase: null };
+
+function createBubbleWindow() {
+  bubbleWin = new BrowserWindow({
+    width: 10, height: 10, show: false,
+    transparent: true, frame: false, resizable: false, hasShadow: false,
+    skipTaskbar: true, alwaysOnTop: true,
+    focusable: false, // 말풍선이 떠도 다른 창의 포커스를 뺏지 않음
+    webPreferences: {
+      preload: path.join(__dirname, 'bubble-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  bubbleWin.setAlwaysOnTop(true, 'screen-saver');
+  bubbleWin.setIgnoreMouseEvents(true); // 말풍선은 클릭이 항상 뒤로 통과
+  bubbleWin.loadFile(path.join(__dirname, 'bubble.html'));
+}
+
+// 캐릭터 머리 위에 말풍선 꼬리 끝이 오도록. 화면 밖으로 나가면 안쪽으로 밀고 꼬리 위치로 캐릭터를 가리킴
+function positionBubble() {
+  if (!bubbleWin || bubbleWin.isDestroyed() || !win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const a = activeDisplay().workArea;
+  const cx = b.x + b.width / 2;
+  const tipY = b.y + Math.round(pet.size * 0.4); // 128 캔버스 기준 캐릭터 머리 윗부분 근처
+  const x = Math.round(clamp(cx - bubble.width / 2, a.x, a.x + a.width - bubble.width));
+  const y = Math.round(Math.max(a.y, tipY - bubble.height));
+  const tailX = Math.round(clamp(cx - x, 24, bubble.width - 24));
+  bubbleWin.setBounds({ x, y, width: bubble.width, height: bubble.height });
+  if (tailX !== bubble.tailX) {
+    bubble.tailX = tailX;
+    bubbleWin.webContents.send('bubble:tail', tailX);
+  }
+}
+
+function showBubble(text, ms) {
+  if (!bubbleWin || bubbleWin.isDestroyed()) return;
+  clearTimeout(bubble.hideTimer);
+  bubble.ms = ms;
+  bubble.tailX = null;
+  bubbleWin.webContents.send('bubble:show', text); // 크기를 재서 bubble:size로 알려주면 그때 띄움
+}
+
+function hideBubble() {
+  clearTimeout(bubble.hideTimer);
+  if (!bubble.visible) return;
+  bubble.visible = false;
+  behavior.talkUntil = 0;
+  if (bubbleWin && !bubbleWin.isDestroyed()) {
+    bubbleWin.webContents.send('bubble:hide');
+    bubbleWin.hide();
+  }
+}
+
+// 캐릭터 pet.json의 phrases에서 무작위 (직전과 같은 대사는 피함)
+function pickPhrase() {
+  const list = pet.phrases && pet.phrases.length ? pet.phrases : DEFAULT_PHRASES;
+  const pool = list.length > 1 ? list.filter((p) => p !== bubble.lastPhrase) : list;
+  const text = pool[Math.floor(Math.random() * pool.length)];
+  bubble.lastPhrase = text;
+  return text;
+}
+
+// 더블클릭: 걷거나 자던 중이면 멈추고 대사를 말함. 캐릭터에 dblclick 이미지가 있으면 그 동작도 재생
+function talk() {
+  const text = pickPhrase();
+  const ms = clamp(2000 + text.length * 100, 2500, 6000); // 긴 문장은 오래 보여줌
+  behavior.talkUntil = Date.now() + ms;
+  if (pet.states.dblclick) setState('dblclick', { force: true });
+  else if (behavior.state !== 'idle') setState('idle');
+  showBubble(text, ms);
 }
 
 // 머물 모니터의 작업 영역 안에서, 지금 위치 근처의 임의 지점
@@ -277,14 +359,15 @@ function tick() {
     if (idleSec < 1) { setState('idle'); scheduleNextMove(); }
     return;
   }
-  if (pet.sleepAfterSec > 0 && idleSec >= pet.sleepAfterSec && behavior.state !== 'click') { // 0 = 안 잠
+  const busy = behavior.state === 'click' || behavior.state === 'dblclick';
+  if (pet.sleepAfterSec > 0 && idleSec >= pet.sleepAfterSec && !busy && now >= behavior.talkUntil) { // 0 = 안 잠
     setState('sleep');
     return;
   }
 
-  if (behavior.state === 'click') return; // 렌더러가 재생 종료를 알려줄 때까지 대기
+  if (busy) return; // 렌더러가 재생 종료를 알려줄 때까지 대기
 
-  if (behavior.state === 'idle' && now >= behavior.nextMoveAt && pet.speed > 0) { // 0 = 안 움직임
+  if (behavior.state === 'idle' && now >= behavior.nextMoveAt && now >= behavior.talkUntil && pet.speed > 0) { // 0 = 안 움직임
     behavior.target = pickTarget();
     setState('walk');
   }
@@ -329,8 +412,24 @@ function registerIpc() {
     setState('click', { force: true }); // 재생 중에 다시 클릭하면 처음부터
   });
 
+  ipcMain.on('pet:dblclick', () => {
+    if (behavior.dragging) return;
+    talk();
+  });
+
+  // 말풍선 창이 글자 크기를 재서 알려주면 캐릭터 위에 띄우고, 정한 시간 뒤에 숨김
+  ipcMain.on('bubble:size', (_e, { width, height }) => {
+    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    bubble.width = Math.ceil(width);
+    bubble.height = Math.ceil(height);
+    bubble.visible = true;
+    positionBubble();
+    if (!bubbleWin.isVisible()) bubbleWin.showInactive();
+    bubble.hideTimer = setTimeout(hideBubble, bubble.ms);
+  });
+
   ipcMain.on('pet:anim-end', (_e, state) => {
-    if (state === 'click' && behavior.state === 'click') {
+    if ((state === 'click' || state === 'dblclick') && behavior.state === state) {
       setState('idle');
       scheduleNextMove();
     }
@@ -435,6 +534,7 @@ function applyVisibility() {
     syncPositionFromWindow();
     behavior.lastTick = Date.now();
   } else if (!shouldShow && win.isVisible()) {
+    hideBubble();
     win.hide();
   }
   updateTrayMenu();
@@ -754,6 +854,7 @@ function quitApp() {
   globalShortcut.unregisterAll();
   if (tray) { tray.destroy(); tray = null; }
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.destroy();
+  if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.destroy();
   if (win && !win.isDestroyed()) win.destroy();
   app.quit();
   // app.quit()으로 프로세스가 끝나지 않는 경우를 대비해 강제 종료
@@ -784,6 +885,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     registerIpc();
     createWindow();
+    createBubbleWindow();
     createTray();
     screen.on('display-added', () => onDisplaysChanged('added'));
     screen.on('display-removed', () => onDisplaysChanged('removed'));

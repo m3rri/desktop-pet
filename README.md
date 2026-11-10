@@ -40,7 +40,8 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 | 동작 | 방법 |
 |---|---|
 | 이동 | 이미지를 드래그 |
-| 반응 | 이미지를 클릭 (점프) |
+| 반응 | 이미지를 클릭 (캐릭터마다 여러 동작 중 하나) |
+| 말 걸기 | 이미지를 더블클릭 → 머리 위 말풍선에 대사 |
 | 숨기기/보이기 | `Ctrl + Alt + P`(설정에서 변경 가능), 트레이 아이콘 클릭, 또는 이미지 우클릭 메뉴 |
 | 설정 | 이미지 우클릭 → 설정…, 또는 트레이 아이콘 더블클릭 |
 | 캐릭터 바꾸기 | 설정 화면, 또는 이미지 우클릭 → 캐릭터 |
@@ -62,8 +63,17 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 | idle | 기본 | 반복 |
 | walk | 2~6초 쉬다가 현재 모니터 안의 근처 지점으로 이동 | 반복 |
 | click | 클릭했을 때 | 1회 재생 후 idle. 이미지가 여러 개면 무작위 |
+| dblclick | 더블클릭했을 때 (선택). 이미지가 없으면 멈춰 서서 말풍선만 띄움 | 1회 재생 후 idle |
 | drag | 드래그하는 동안 | 반복 |
 | sleep | 키보드·마우스 입력이 `sleepAfterSec`초 동안 없을 때. 입력이 생기면 깨어남 | 반복 |
+
+### 더블클릭과 말풍선
+
+- 클릭과 더블클릭을 구분하려고, 클릭하면 0.25초 동안 두 번째 클릭을 기다린 뒤 클릭 동작을 재생합니다. 그래서 클릭 반응이 그만큼 늦지만, 더블클릭할 때 클릭 동작이 먼저 시작되지 않습니다
+- 더블클릭하면 걷거나 자던 캐릭터가 멈추고, 머리 위 말풍선에 `pet.json`의 `phrases` 중 하나를 무작위로 보여줍니다(직전과 같은 대사는 연달아 나오지 않음). `phrases`가 없으면 앱 기본 대사를 씁니다
+- 말풍선은 2.5~6초(글자 수에 따라) 뒤에 사라지고, 캐릭터를 끌면 따라다닙니다. 화면 가장자리에서는 안쪽으로 밀리고 꼬리가 캐릭터를 가리킵니다
+- 말풍선 글자는 이미지가 아니라 글자로 그립니다(이후 퇴근 시간 알림처럼 매번 바뀌는 문구에 쓰기 위해)
+- 폰트는 앱에 같이 넣은 [Gaegu](assets/fonts/gaegu/OFL.txt)(SIL Open Font License 1.1)를 씁니다. 사용자 PC에 설치된 폰트와 상관없이 같은 모양으로 보이고, 불러오지 못하면 맑은 고딕으로 대신 표시합니다
 
 ## 설정 화면
 
@@ -143,7 +153,8 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
   "speed": 80,
   "facing": "right",
   "sleepAfterSec": 600,
-  "states": { "click": { "loop": false } }
+  "states": { "click": { "loop": false } },
+  "phrases": ["안녕!", "오늘도 수고했어"]
 }
 ```
 
@@ -153,9 +164,10 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 | `speed` | 걷는 속도(px/초) | 80 |
 | `facing` | 원본 이미지가 바라보는 방향 | `right` |
 | `sleepAfterSec` | 입력이 없을 때 잠들기까지 걸리는 시간(초) | 600 |
-| `states.<상태>.loop` | 반복 재생 여부 | click만 `false` |
+| `states.<상태>.loop` | 반복 재생 여부 | click, dblclick만 `false` |
+| `phrases` | 더블클릭하면 말풍선에 보여줄 대사 목록 | 앱 기본 대사 |
 
-기본 캐릭터(곰, 검은 고양이, 푸들, 토끼, 오목눈이)와 앱·트레이 아이콘은 `npm run make-pets`로 다시 만들 수 있습니다 (`scripts/make-pets.js`).
+기본 캐릭터(곰, 검은 고양이, 푸들, 토끼, 쿼카, 오목눈이)와 각 캐릭터의 대사, 앱·트레이 아이콘은 `npm run make-pets`로 다시 만들 수 있습니다 (`scripts/make-pets.js`).
 그림체: 손그림 느낌의 굵은 갈색 외곽선, 납작하고 둥근 떡 같은 몸, 작은 점 눈, 큰 분홍 볼터치, 파스텔 단색.
 외곽선을 각도에 따라 조금씩 흔들어 손으로 그린 듯 보이게 하고, 프레임마다 흔들림을 바꿔 선이 살짝 일렁입니다.
 
@@ -190,12 +202,14 @@ src/fullscreen.js 전체 화면 앱 감지 (Windows API 호출)
 src/preload.js    렌더러에 노출하는 API (window.pet)
 src/renderer.js   이미지를 프레임으로 풀어(ImageDecoder) canvas에 재생, 클릭·드래그 감지
 src/index.html    canvas
+src/bubble.*      말풍선 창 (bubble.html, bubble.js, bubble-preload.js): 글자 크기를 재고 손그림 테두리를 그림
 assets/pets/default/  기본 캐릭터 (곰)
 assets/pets/cat/      검은 고양이
 assets/pets/dog/      강아지 (푸들)
 assets/pets/rabbit/   토끼
 assets/pets/quokka/   쿼카
 assets/pets/bird/     오목눈이
+assets/fonts/gaegu/  말풍선 폰트 (Gaegu, OFL.txt)
 assets/tray.png   트레이 아이콘
 scripts/          기본 캐릭터·아이콘 생성 스크립트 (make-pets.js), PNG/APNG/ICO 인코더
 test/             모니터 식별·배치, 캐릭터 폴더 테스트 (npm test)

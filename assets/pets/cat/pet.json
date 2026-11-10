@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "냥?",
+    "쓰다듬어도 돼",
+    "간식 시간 아니야?",
+    "집사, 일 열심히 해",
+    "흥, 별로 안 반가워"
+  ]
 }

@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "오늘도 웃자!",
+    "나뭇잎 맛있다",
+    "행복은 가까이에 있어",
+    "헤헤",
+    "같이 사진 찍을래?"
+  ]
 }

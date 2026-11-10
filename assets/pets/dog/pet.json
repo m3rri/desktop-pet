@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "산책 가자!",
+    "헥헥 신난다!",
+    "놀아줘 놀아줘!",
+    "오늘 최고야!",
+    "꼬리가 멈추질 않아"
+  ]
 }

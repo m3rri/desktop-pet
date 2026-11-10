@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('pet', {
   setInteractive: (interactive) => ipcRenderer.send('pet:set-interactive', interactive),
   frame: () => ipcRenderer.send('pet:frame'),
   click: () => ipcRenderer.send('pet:click'),
+  dblclick: () => ipcRenderer.send('pet:dblclick'),
   animEnd: (state) => ipcRenderer.send('pet:anim-end', state),
   dragStart: () => ipcRenderer.send('pet:drag-start'),
   dragEnd: () => ipcRenderer.send('pet:drag-end'),

@@ -3,5 +3,12 @@
   "size": 128,
   "speed": 80,
   "facing": "right",
-  "sleepAfterSec": 600
+  "sleepAfterSec": 600,
+  "phrases": [
+    "짹짹!",
+    "날씨 좋다!",
+    "조금만 쉬어가",
+    "포르르",
+    "오늘 하늘 봤어?"
+  ]
 }
