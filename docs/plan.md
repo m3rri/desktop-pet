@@ -305,7 +305,9 @@ MVP(Minimum Viable Product)는 핵심 기능만 넣어 일단 동작하는 첫 �
 - [x] Windows에서 확인
 - [x] 배포: 태그(`v*`) push → GitHub Actions(windows-latest)에서 빌드 → GitHub Releases에 업로드
   - 제약: `releases/latest/download/<파일 이름>` 링크는 이름이 고정이어야 항상 최신을 가리킴 → 설치 파일 이름에서 버전을 뺌 (`DesktopPet-Setup.exe`)
-  - Release는 초안이 아니라 바로 공개(`releaseType: release`). 태그와 package.json 버전이 다르면 멈춤
+  - 태그와 package.json 버전이 다르면 멈춤
+  - 처음(v1.4.1)에는 바로 공개(`releaseType: release`)로 올렸는데, electron-builder가 파일을 동시에 올리면서 같은 태그의 Release를 2개 만듦 (하나는 exe·latest.yml, 하나는 blockmap만). latest 링크가 blockmap만 있는 쪽을 가리키는 동안 404
+  - 고친 방식: Actions에서 `gh release create --draft`로 초안을 먼저 하나 만들고 → electron-builder가 그 초안에 올리고(`releaseType: draft`) → 다 올라간 뒤 `gh release edit --draft=false --latest`로 공개
   - `npm ci`를 쓰려고 `package-lock.json`을 커밋. 로컬 `npm run dist:win`은 `--publish never`
   - 다운로드 페이지와 앱 안 자동 업데이트는 다음에 (`latest.yml`은 지금부터 같이 올라감)
 

@@ -105,6 +105,7 @@ npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup.
 
 - **배포는 태그 push** (1.4.1부터): `package.json` 버전을 올려 커밋 → `git push origin main` → `git tag v<버전>` → `git push origin v<버전>`. GitHub Actions(`.github/workflows/release.yml`, windows-latest)가 빌드해서 Releases에 `DesktopPet-Setup.exe`, `latest.yml`, `.blockmap`을 올림
 - 다운로드 링크는 항상 `https://github.com/m3rri/desktop-pet/releases/latest/download/DesktopPet-Setup.exe` (설치 파일 이름에 버전을 넣지 않음)
+- Release는 Actions가 초안으로 먼저 만들고, 파일이 다 올라간 뒤 공개함 (바로 공개로 올렸던 v1.4.1에서 같은 태그의 Release가 2개 생겼음)
 - 태그와 `package.json` 버전이 다르면 Actions가 멈춤. `npm ci`를 쓰므로 의존성을 바꾸면 `package-lock.json`도 같이 커밋
 - `.github/workflows` 파일을 바꿔 push하려면 PAT에 Workflows 권한이 필요
 - 1.4.0까지는 회사 작업 환경에서 Windows PC에서 직접 빌드할 수 없어서 Linux + Wine으로 설치 프로그램을 만들고 파일을 나눠 옮겼음. 이제는 필요 없음

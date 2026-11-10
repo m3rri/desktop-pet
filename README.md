@@ -43,6 +43,7 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 4. Actions 탭에서 끝나면 Release에 `DesktopPet-Setup.exe`, `latest.yml`, `.blockmap`이 올라감
 
 - 태그와 `package.json` 버전이 다르면 빌드하지 않고 멈춥니다
+- Release는 초안으로 먼저 만들고, 파일이 다 올라간 뒤에 공개합니다 (같은 태그의 Release가 2개 생기거나, 파일이 덜 올라간 Release를 latest 링크가 가리키는 것을 막기 위해)
 - 설치 파일 이름에 버전을 넣지 않아서 `releases/latest/download/DesktopPet-Setup.exe`가 항상 최신 버전을 가리킵니다
 - `latest.yml`은 나중에 앱 안 자동 업데이트(electron-updater)가 최신 버전을 확인할 때 씁니다
 - 업로드 권한은 Actions에 기본으로 주어지는 `GITHUB_TOKEN`을 씁니다. 다만 `.github/workflows` 파일을 push하려면 push에 쓰는 토큰(fine-grained PAT)에 **Workflows: Read and write** 권한이 있어야 합니다

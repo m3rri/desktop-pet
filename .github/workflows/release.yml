@@ -32,7 +32,22 @@ jobs:
 
       - run: npm test
 
-      - name: 빌드하고 Release에 올리기
+      # electron-builder는 파일 여러 개를 동시에 올리는데, Release가 없으면 파일마다 Release를 새로 만들어
+      # 같은 태그의 Release가 2개 생길 수 있음 (1.4.1에서 실제로 생겨 latest 링크가 404). 그래서 초안을 먼저 하나 만들어 둠
+      - name: Release 초안 만들기
+        shell: bash
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --draft --title "${GITHUB_REF_NAME#v}" --notes "Desktop Pet ${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 빌드하고 Release 초안에 올리기
         run: npx electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 파일이 다 올라간 뒤에 공개해야 latest 링크가 빈 Release를 가리키지 않음
+      - name: Release 공개
+        shell: bash
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

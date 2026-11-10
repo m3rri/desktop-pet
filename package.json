@@ -66,7 +66,7 @@
       "artifactName": "DesktopPet-Setup.exe"
     },
     "publish": [
-      { "provider": "github", "owner": "m3rri", "repo": "desktop-pet", "releaseType": "release" }
+      { "provider": "github", "owner": "m3rri", "repo": "desktop-pet", "releaseType": "draft" }
     ],
     "electronLanguages": [
       "ko",
