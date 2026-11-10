@@ -1,6 +1,6 @@
 // node test/countdown.test.js
 const assert = require('assert');
-const { COLD, AFTER_WORK, countdownMessage, validateCountdown, shortTime } = require('../src/countdown');
+const { COLD, AFTER_WORK, countdownMessage, dueAlert, validateCountdown, shortTime } = require('../src/countdown');
 
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log('ok -', name); };
@@ -66,6 +66,27 @@ t('꺼져 있거나 값이 없으면 null (평소 대사)', () => {
   assert.strictEqual(countdownMessage(null, at(17, 0)), null);
 });
 
+t('먼저 알려주기: 퇴근 1시간·30분·10분 전과 퇴근 시각', () => {
+  const due = (p, n, cfg = work) => { const d = dueAlert(cfg, p, n); return d && d.minutes; };
+  assert.strictEqual(due(at(16, 59, 55), at(17, 0, 0)), 60);
+  assert.strictEqual(due(at(17, 29, 58), at(17, 30, 3)), 30);
+  assert.strictEqual(due(at(17, 49, 59), at(17, 50, 0)), 10);
+  assert.strictEqual(due(at(17, 59, 59), at(18, 0, 1)), 0);
+  assert.strictEqual(due(at(17, 0, 1), at(17, 29, 59)), null);         // 사이에 알릴 시점이 없음
+  assert.strictEqual(due(at(17, 25), at(18, 5)), 0);                    // 잠들었다 깨는 등으로 여러 개를 건너뛰면 가장 늦은 것 하나만
+  assert.notStrictEqual(dueAlert(work, at(16, 59, 55), at(17, 0)).key, dueAlert(work, at(17, 29, 58), at(17, 30)).key);
+  assert.strictEqual(due(at(16, 59, 55), at(17, 0), { ...work, notify: false }), null);
+  assert.strictEqual(due(at(16, 59, 55), at(17, 0), { mode: 'off', workEnd: '18:00' }), null);
+});
+
+t('먼저 알려주기: 마감 하루·1시간·10분 전과 마감 시각', () => {
+  const dl = { mode: 'deadline', deadline: '2026-11-11T16:00', deadlineKind: 'exam' };
+  const due = (p, n) => { const d = dueAlert(dl, p, n); return d && d.minutes; };
+  assert.strictEqual(due(at(15, 59, 58), at(16, 0, 2)), 24 * 60);
+  assert.strictEqual(due(new Date(2026, 10, 11, 14, 59, 59), new Date(2026, 10, 11, 15, 0, 0)), 60);
+  assert.strictEqual(due(new Date(2026, 10, 11, 15, 59, 59), new Date(2026, 10, 11, 16, 0, 0)), 0);
+});
+
 t('설정값 검사', () => {
   assert.strictEqual(validateCountdown({ mode: 'work', workEnd: '18:30' }), null);
   assert.strictEqual(validateCountdown({ mode: 'deadline', deadline: '2026-12-24T16:00', deadlineKind: 'exam' }), null);
@@ -75,6 +96,7 @@ t('설정값 검사', () => {
   assert.ok(validateCountdown({ mode: 'work', workEnd: '25:00' }));
   assert.ok(validateCountdown({ mode: 'deadline', deadline: '내일' }));
   assert.ok(validateCountdown({ mode: 'later' }));
+  assert.ok(validateCountdown({ mode: 'work', notify: 'yes' }));
 });
 
 console.log(`\n${n} passed`);

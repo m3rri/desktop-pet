@@ -119,6 +119,22 @@ window.bubble.onShow(async (text) => {
   window.bubble.size({ width: box.w + MARGIN * 2, height: box.h + TAIL_H + MARGIN * 2 });
 });
 
+// 떠 있는 동안 남은 시간이 줄어들면 글자만 바꿈. 숫자 폭이 달라 말풍선이 들썩이지 않게 폭은 줄이지 않음
+window.bubble.onUpdate((text) => {
+  if (!box) return;
+  textEl.textContent = text;
+  const r = textEl.getBoundingClientRect();
+  const w = Math.max(box.w, Math.ceil(r.width) + PAD_X * 2), h = Math.ceil(r.height) + PAD_Y * 2;
+  if (w !== box.w || h !== box.h) {
+    box = { w, h };
+    textEl.style.left = `${MARGIN + (w - Math.ceil(r.width)) / 2}px`;
+    window.bubble.resize({ width: w + MARGIN * 2, height: h + TAIL_H + MARGIN * 2 });
+    draw();
+  } else {
+    textEl.style.left = `${MARGIN + (box.w - Math.ceil(r.width)) / 2}px`; // 폭을 유지할 때는 가운데 정렬
+  }
+});
+
 window.bubble.onTail((x) => {
   tailX = x;
   draw();

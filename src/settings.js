@@ -139,12 +139,18 @@ function sendDeadline() {
   set('countdown', { deadline: date ? (time ? `${date}T${time}` : date) : null });
 }
 $('deadline-date').addEventListener('change', sendDeadline);
+$('notify').addEventListener('change', (e) => set('countdown', { notify: e.target.checked }));
 $('deadline-time').addEventListener('change', sendDeadline);
 function renderCountdown() {
   const c = state.countdown;
   document.querySelectorAll('input[name=countdown-mode]').forEach((r) => { r.checked = r.value === c.mode; });
   $('work-row').hidden = c.mode !== 'work';
   document.querySelectorAll('.deadline-row').forEach((r) => { r.hidden = c.mode !== 'deadline'; });
+  $('notify-row').hidden = c.mode === 'off';
+  $('notify').checked = c.notify !== false;
+  $('notify-hint').textContent = c.mode === 'deadline'
+    ? '마감 하루 전, 1시간 전, 10분 전, 마감 시각에 더블클릭하지 않아도 말해 줍니다'
+    : '퇴근 1시간 전, 30분 전, 10분 전, 퇴근 시각에 더블클릭하지 않아도 말해 줍니다';
   if (document.activeElement !== $('work-end')) $('work-end').value = c.workEnd || '';
   $('deadline-kind').value = c.deadlineKind || 'exam';
   const [date = '', time = ''] = (c.deadline || '').split('T');

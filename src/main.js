@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
 const { createFullscreenDetector } = require('./fullscreen');
-const { countdownMessage, validateCountdown } = require('./countdown');
+const { countdownMessage, dueAlert, validateCountdown } = require('./countdown');
 
 // 설정·로그 폴더를 %APPDATA%\desktop-pet 으로 고정.
 // 설치판은 productName("Desktop Pet")이 앱 이름이 되어 폴더가 %APPDATA%\Desktop Pet 으로 바뀌므로,
@@ -41,7 +41,8 @@ let settings = {
   boilStatic: true,        // 정지 이미지 외곽선을 손그림처럼 일렁이게 (렌더러가 휘게 한 3장을 번갈아 보여줌)
   // 남은 시간 알림 (더블클릭 3번 중 1번). mode: 'work' 매일 퇴근 시각 / 'deadline' 마감 날짜·시각(YYYY-MM-DDTHH:MM) / 'off'
   // deadlineKind: 마감 종류 (exam 시험, assignment 과제, manuscript 원고, project 프로젝트, other 기타)
-  countdown: { mode: 'work', workEnd: '18:00', deadline: null, deadlineKind: 'exam' },
+  // notify: 정해진 시점(퇴근 1시간·30분·10분 전·정각 / 마감 하루·1시간·10분 전·정각)에 더블클릭하지 않아도 먼저 알려줌
+  countdown: { mode: 'work', workEnd: '18:00', deadline: null, deadlineKind: 'exam', notify: true },
 };
 const DEFAULT_COUNTDOWN = { ...settings.countdown };
 
@@ -247,7 +248,8 @@ function moveWindow(x, y) {
 // ---------- 말풍선 (더블클릭) ----------
 // 글자는 이미지가 아니라 bubble.html에서 글자로 그림 (나중에 퇴근 시간 알림처럼 매번 바뀌는 문구를 쓰기 위해)
 const DEFAULT_PHRASES = ['안녕!', '오늘도 수고했어', '쉬엄쉬엄 해', '물 한 잔 마시자', '기지개 한 번 켜자', '뭐 해?'];
-const bubble = { visible: false, width: 0, height: 0, tailX: null, hideTimer: null, ms: 0, lastPhrase: null, talkCount: 0 };
+const bubble = { visible: false, width: 0, height: 0, tailX: null, hideTimer: null, ms: 0, lastPhrase: null, talkCount: 0,
+  text: '', live: null, liveTimer: null }; // live: 남은 시간 문구면 { r } (떠 있는 동안 1초마다 다시 계산. r은 무작위 문구를 고정하는 값)
 
 function createBubbleWindow() {
   bubbleWin = new BrowserWindow({
@@ -284,9 +286,29 @@ function positionBubble() {
   }
 }
 
-function showBubble(text, ms) {
+function stopLive() {
+  clearInterval(bubble.liveTimer);
+  bubble.liveTimer = null;
+}
+
+// 남은 시간 문구는 말풍선이 떠 있는 동안 1초마다 다시 계산해서, 바뀌면(초가 줄어들면) 글자만 바꿈
+function startLive() {
+  stopLive();
+  if (!bubble.live) return;
+  bubble.liveTimer = setInterval(() => {
+    const text = countdownMessage(settings.countdown, new Date(), () => bubble.live.r);
+    if (!text || text === bubble.text || !bubbleWin || bubbleWin.isDestroyed()) return;
+    bubble.text = text;
+    bubbleWin.webContents.send('bubble:update', text);
+  }, 1000);
+}
+
+function showBubble(text, ms, live = null) {
   if (!bubbleWin || bubbleWin.isDestroyed()) return;
   clearTimeout(bubble.hideTimer);
+  stopLive();
+  bubble.live = live;
+  bubble.text = text;
   bubble.ms = ms;
   bubble.tailX = null;
   bubbleWin.webContents.send('bubble:show', text); // 크기를 재서 bubble:size로 알려주면 그때 띄움
@@ -294,6 +316,8 @@ function showBubble(text, ms) {
 
 function hideBubble() {
   clearTimeout(bubble.hideTimer);
+  stopLive();
+  bubble.live = null;
   if (!bubble.visible) return;
   bubble.visible = false;
   behavior.talkUntil = 0;
@@ -316,13 +340,38 @@ function pickPhrase() {
 // 3번째 더블클릭마다 퇴근(또는 마감)까지 남은 시간을 알려줌. 알림을 끄면 항상 평소 대사
 function talk() {
   bubble.talkCount += 1;
-  const countdown = bubble.talkCount % 3 === 0 ? countdownMessage(settings.countdown) : null;
+  const r = Math.random();
+  const countdown = bubble.talkCount % 3 === 0 ? countdownMessage(settings.countdown, new Date(), () => r) : null;
   const text = countdown || pickPhrase();
   const ms = clamp(2000 + text.length * 100, 2500, 6000); // 긴 문장은 오래 보여줌
   behavior.talkUntil = Date.now() + ms;
   if (pet.states.dblclick) setState('dblclick', { force: true });
   else if (behavior.state !== 'idle') setState('idle');
-  showBubble(text, ms);
+  showBubble(text, ms, countdown ? { r } : null);
+}
+
+// ---------- 먼저 알려주기 (퇴근·마감 시점) ----------
+// 1초마다 지난 확인 이후 알릴 시점이 지나갔는지 봄 (늦게 확인하면 "퇴근까지 9분 56초"처럼 딱 떨어지지 않음). 앱을 켠 시각부터 세므로 켜자마자 지난 알림이 뜨지 않음.
+// 절전에서 깨어나는 등으로 알릴 시점이 5분 넘게 지났으면 알리지 않음 (늦게 뜨면 의미가 없음)
+const ALERT_CHECK_MS = 1000;
+const ALERT_LATE_MS = 5 * 60 * 1000;
+const ALERT_SHOW_MS = 8000;
+const alerts = { prev: new Date(), fired: new Set() };
+
+function checkAlerts() {
+  const now = new Date();
+  const due = dueAlert(settings.countdown, alerts.prev, now);
+  alerts.prev = now;
+  if (!due || alerts.fired.has(due.key) || now - due.at > ALERT_LATE_MS) return;
+  alerts.fired.add(due.key);
+  if (!win || win.isDestroyed() || !win.isVisible() || behavior.dragging) { log('alert skipped (hidden or dragging):', due.key); return; }
+  const r = Math.random();
+  const text = countdownMessage(settings.countdown, now, () => r);
+  if (!text) return;
+  log('alert:', due.key, text);
+  setState('click', { force: true }); // 눈에 띄게 클릭 동작 하나를 재생하면서 말함
+  behavior.talkUntil = Date.now() + ALERT_SHOW_MS;
+  showBubble(text, ALERT_SHOW_MS, { r });
 }
 
 // 머물 모니터의 작업 영역 안에서, 지금 위치 근처의 임의 지점
@@ -435,6 +484,15 @@ function registerIpc() {
     positionBubble();
     if (!bubbleWin.isVisible()) bubbleWin.showInactive();
     bubble.hideTimer = setTimeout(hideBubble, bubble.ms);
+    startLive();
+  });
+
+  // 남은 시간 문구가 바뀌어 글자 폭이 달라지면 창 크기·위치만 다시 맞춤 (숨김 타이머는 그대로)
+  ipcMain.on('bubble:resize', (_e, { width, height }) => {
+    if (!bubble.visible) return;
+    bubble.width = Math.ceil(width);
+    bubble.height = Math.ceil(height);
+    positionBubble();
   });
 
   ipcMain.on('pet:anim-end', (_e, state) => {
@@ -911,6 +969,7 @@ if (!app.requestSingleInstanceLock()) {
     setInterval(() => {
       if (Date.now() - behavior.lastFrameAt > FRAME_TIMEOUT_MS) tick();
     }, FALLBACK_TICK_MS);
+    setInterval(checkAlerts, ALERT_CHECK_MS);
     fullscreenDisplayId = createFullscreenDetector(log);
     if (fullscreenDisplayId) setInterval(checkFullscreen, FULLSCREEN_CHECK_MS);
     if (!setShortcut(settings.shortcut) && settings.shortcut !== DEFAULT_SHORTCUT) setShortcut(DEFAULT_SHORTCUT);

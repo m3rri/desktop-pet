@@ -15,7 +15,7 @@ npm start
 
 ## 설치
 
-`DesktopPet-Setup-<버전>.exe`를 실행합니다.
+[최신 설치 프로그램 내려받기](https://github.com/m3rri/desktop-pet/releases/latest/download/DesktopPet-Setup.exe) (`DesktopPet-Setup.exe`)를 실행합니다. 지난 버전은 [Releases](https://github.com/m3rri/desktop-pet/releases)에 있습니다.
 
 - 기본은 "현재 사용자만" 설치라 관리자 권한이 필요 없습니다 (`%LOCALAPPDATA%\Programs\Desktop Pet`)
 - 시작 메뉴와 바탕화면에 바로가기가 생기고, 설정 → 앱에서 제거할 수 있습니다
@@ -26,12 +26,26 @@ npm start
 
 ```bash
 npm install
-npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-<버전>.exe
+npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup.exe (내 PC에만 만들고 올리지 않음)
 npm run package:win   # 압축 버전(설치 없이 실행) → dist/desktop-pet-win32-x64/
 ```
 
 `dist:win`은 Windows에서 실행하면 바로 됩니다. Linux·macOS에서는 Wine(32비트 포함)이 필요합니다.
 electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한 번 실행하기 때문입니다.
+
+## 배포
+
+`v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 설치 프로그램을 빌드해 [Releases](https://github.com/m3rri/desktop-pet/releases)에 올립니다.
+
+1. `package.json`의 `version`을 올려 커밋 (예: `1.4.2`)
+2. `git push origin main`
+3. `git tag v1.4.2` → `git push origin v1.4.2`
+4. Actions 탭에서 끝나면 Release에 `DesktopPet-Setup.exe`, `latest.yml`, `.blockmap`이 올라감
+
+- 태그와 `package.json` 버전이 다르면 빌드하지 않고 멈춥니다
+- 설치 파일 이름에 버전을 넣지 않아서 `releases/latest/download/DesktopPet-Setup.exe`가 항상 최신 버전을 가리킵니다
+- `latest.yml`은 나중에 앱 안 자동 업데이트(electron-updater)가 최신 버전을 확인할 때 씁니다
+- 업로드 권한은 Actions에 기본으로 주어지는 `GITHUB_TOKEN`을 씁니다. 다만 `.github/workflows` 파일을 push하려면 push에 쓰는 토큰(fine-grained PAT)에 **Workflows: Read and write** 권한이 있어야 합니다
 
 앱 아이콘(`assets/icon.ico`)은 `npm run make-pets`가 곰을 크기별(16~256px)로 다시 그려서 만듭니다.
 
@@ -111,6 +125,8 @@ electron-builder가 제거 프로그램을 만들 때 설치 프로그램을 한
 - 남은 날은 오늘과 마감일의 달력 날짜 차이로 셉니다. 남은 일수·시간은 마감 시각까지 실제로 남은 시간입니다
 - 마감 시각을 비워 두면 그날 밤 12시가 마감입니다
 
+- 남은 시간 말풍선은 떠 있는 동안 1초마다 초가 줄어듭니다
+- **때가 되면 먼저 알려주기**(기본 켜짐): 더블클릭하지 않아도 퇴근 1시간·30분·10분 전과 퇴근 시각(마감은 하루·1시간·10분 전과 마감 시각)에 캐릭터가 클릭 동작을 하며 8초 동안 말합니다. 캐릭터를 숨겼거나 끄는 중이면 건너뛰고, 절전 등으로 5분 넘게 늦었으면 알리지 않습니다
 - 시각은 내 PC 시간 기준입니다
 - "사용 안 함"이거나 마감 날짜를 비워 두면 항상 평소 대사를 말합니다
 - 이모지는 Gaegu 폰트에 없어서 Windows 이모지 글꼴(Segoe UI Emoji)로 표시됩니다

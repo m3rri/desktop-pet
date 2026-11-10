@@ -1,6 +1,6 @@
 {
   "name": "desktop-pet",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "바탕화면에 이미지가 떠다니는 데스크톱 앱",
   "author": "m3rri",
   "main": "src/main.js",
@@ -9,7 +9,7 @@
     "start": "electron .",
     "test": "node test/displays.test.js && node test/pets.test.js && node test/countdown.test.js",
     "package:win": "electron-packager . desktop-pet --platform=win32 --arch=x64 --out=dist --overwrite --asar --asar.unpack=\"*.node\" --ignore=\"^/dist\" --ignore=\"^/scripts\" --ignore=\"^/docs\" --ignore=\"^/test\" --ignore=\"/node_modules/koffi/build/koffi/(?!win32_x64)\" --ignore=\"/node_modules/koffi/(src|doc|vendor)/\"",
-    "dist:win": "electron-builder --win nsis --x64",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
     "make-pets": "node scripts/make-pets.js"
   },
   "dependencies": {
@@ -63,9 +63,11 @@
       ],
       "language": "1042",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "DesktopPet-Setup-${version}.exe"
+      "artifactName": "DesktopPet-Setup.exe"
     },
-    "publish": null,
+    "publish": [
+      { "provider": "github", "owner": "m3rri", "repo": "desktop-pet", "releaseType": "release" }
+    ],
     "electronLanguages": [
       "ko",
       "en-US"

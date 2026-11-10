@@ -1,10 +1,11 @@
 // 남은 시간 알림 문구 (더블클릭 3번 중 1번). Electron 의존 없음 (test/countdown.test.js)
 //
-// 설정 { mode, workEnd, deadline, deadlineKind }
+// 설정 { mode, workEnd, deadline, deadlineKind, notify }
 //   mode: 'work'     매일 퇴근 시각(workEnd, "HH:MM")까지 남은 시간
 //         'deadline' 마감 날짜·시각(deadline, "YYYY-MM-DDTHH:MM")까지, 남은 날에 따라 하루 단위로 (직장인이 아닌 경우)
 //                    deadlineKind: 마감 종류 (시험·과제·원고 등). 말풍선 문구에 들어감
 //         'off'      알리지 않음
+//   notify: 정해진 시점(ALERT_MINUTES)이 되면 더블클릭하지 않아도 먼저 알려줌
 
 const HOUR = 3600 * 1000, MIN = 60 * 1000;
 
@@ -106,13 +107,41 @@ function countdownMessage(cfg, now = new Date(), rand = Math.random) {
   return null;
 }
 
+// ---------- 먼저 알려주기 ----------
+// 더블클릭하지 않아도 이 시점이 되면 캐릭터가 먼저 말함 (분 단위, 0 = 퇴근·마감 시각)
+const ALERT_MINUTES = { work: [60, 30, 10, 0], deadline: [24 * 60, 60, 10, 0] };
+
+// 지금 기준 퇴근·마감 시각. 알림이 꺼져 있거나 값이 없으면 null
+function targetTime(cfg, now = new Date()) {
+  if (!cfg) return null;
+  if (cfg.mode === 'work') return parseWorkEnd(cfg.workEnd, now);
+  if (cfg.mode === 'deadline') { const dl = parseDeadline(cfg.deadline); return dl ? dl.end : null; }
+  return null;
+}
+
+// 지난 확인(prev) 뒤로 지금(now)까지 사이에 알릴 시점이 지나갔으면 그중 가장 늦은 것. 없으면 null.
+// prev를 앱 시작 시각으로 두면 시작하자마자 지난 알림이 한꺼번에 뜨지 않음
+function dueAlert(cfg, prev, now) {
+  if (!cfg || cfg.notify === false) return null;
+  const end = targetTime(cfg, now);
+  const list = ALERT_MINUTES[cfg.mode];
+  if (!end || !list) return null;
+  let due = null;
+  for (const min of list) {
+    const at = end.getTime() - min * MIN;
+    if (at > prev.getTime() && at <= now.getTime() && (!due || at > due.at)) due = { at, minutes: min, key: `${cfg.mode}|${end.getTime()}|${min}` };
+  }
+  return due;
+}
+
 // 설정 화면에서 받은 값 검사. 잘못된 값이면 오류 문구
 function validateCountdown(c) {
   if (!c || !['work', 'deadline', 'off'].includes(c.mode)) return '알림 기준을 골라 주세요.';
   if (c.workEnd !== undefined && c.workEnd !== null && !parseWorkEnd(c.workEnd, new Date())) return '퇴근 시간을 확인해 주세요.';
   if (c.deadline !== undefined && c.deadline !== null && c.deadline !== '' && !parseDeadline(c.deadline)) return '마감 날짜와 시각을 확인해 주세요.';
   if (c.deadlineKind !== undefined && !DEADLINE_KINDS[c.deadlineKind]) return '마감 종류를 골라 주세요.';
+  if (c.notify !== undefined && typeof c.notify !== 'boolean') return '먼저 알려주기 값이 올바르지 않습니다.';
   return null;
 }
 
-module.exports = { COLD, AFTER_WORK, WORK_EMOJI, DEADLINE_KINDS, DEFAULT_KIND, countdownMessage, validateCountdown, shortTime };
+module.exports = { COLD, AFTER_WORK, WORK_EMOJI, DEADLINE_KINDS, DEFAULT_KIND, ALERT_MINUTES, countdownMessage, targetTime, dueAlert, validateCountdown, shortTime };

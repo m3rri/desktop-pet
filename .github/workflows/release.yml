@@ -1,0 +1,38 @@
+# 태그(v1.4.1 등)를 push하면 Windows에서 설치 프로그램을 빌드해 GitHub Releases에 올림.
+# 올라가는 파일: DesktopPet-Setup.exe (버전 없는 이름이라 releases/latest/download/DesktopPet-Setup.exe 로 항상 최신을 받음),
+#               latest.yml (나중에 앱 안 자동 업데이트가 최신 버전을 확인할 때 씀), DesktopPet-Setup.exe.blockmap
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # Release 만들기·파일 올리기 (GitHub가 주는 GITHUB_TOKEN으로 충분)
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 태그와 package.json 버전이 다르면 잘못 올리지 않도록 멈춤
+      - name: 태그와 버전 확인
+        shell: bash
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          if [ "$v" != "$GITHUB_REF_NAME" ]; then echo "태그 $GITHUB_REF_NAME 와 package.json 버전 $v 가 다릅니다"; exit 1; fi
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: 빌드하고 Release에 올리기
+        run: npx electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

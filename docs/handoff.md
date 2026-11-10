@@ -1,6 +1,6 @@
 # 인수인계 — 집에서 이어서 작업하기
 
-마지막 갱신: 2026-11-10 (v1.4.0 커밋 시점)
+마지막 갱신: 2026-11-10 (v1.4.1 커밋 시점)
 
 다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업 후보를 정리했다.
 전체 계획과 지금까지의 변경 이력은 [plan.md](plan.md), 사용법은 [README.md](../README.md) 참고.
@@ -9,12 +9,12 @@
 
 ## 1. 현재 상태
 
-- 버전: **1.4.0** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
+- 버전: **1.4.1** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
 - 기본 캐릭터 6종: 곰(default), 검은 고양이(cat), 푸들(dog), 토끼(rabbit), 쿼카(quokka), 오목눈이(bird)
-- 설치 프로그램: `dist/installer/DesktopPet-Setup-1.4.0.exe` (dist는 git에 올리지 않음)
+- 설치 프로그램: [GitHub Releases](https://github.com/m3rri/desktop-pet/releases/latest) (`DesktopPet-Setup.exe`, 태그 push로 자동 배포)
 - GitHub: `m3rri/desktop-pet` (개인 계정, main 브랜치). 커밋 후 push는 직접 함
 
-### 클릭 동작 (1.4.0 기준, 클릭하면 이 중 하나를 무작위로 재생)
+### 클릭 동작 (1.4.1 기준, 클릭하면 이 중 하나를 무작위로 재생)
 
 | 캐릭터 | 클릭 동작 |
 |---|---|
@@ -100,13 +100,17 @@ npm run make-pets   # assets/pets/*, assets/icon.ico 등 전부 다시 생성 (�
 
 ```bash
 npm run package:win   # 설치 없이 실행하는 폴더 → dist/desktop-pet-win32-x64/ (zip으로 묶어 테스트용으로 씀)
-npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-<버전>.exe
+npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup.exe (내 PC에만, 올리지 않음)
 ```
 
-- 버전은 `package.json`의 `version`만 바꾸면 설치 파일 이름과 앱 정보에 반영됨
-- Windows에서 실행하면 그대로 동작함. 회사 작업 환경에서는 Windows PC에서 직접 빌드할 수 없어서 Linux + Wine으로 설치 프로그램을 만들었는데, 집 PC에서는 그럴 필요 없음
+- **배포는 태그 push** (1.4.1부터): `package.json` 버전을 올려 커밋 → `git push origin main` → `git tag v<버전>` → `git push origin v<버전>`. GitHub Actions(`.github/workflows/release.yml`, windows-latest)가 빌드해서 Releases에 `DesktopPet-Setup.exe`, `latest.yml`, `.blockmap`을 올림
+- 다운로드 링크는 항상 `https://github.com/m3rri/desktop-pet/releases/latest/download/DesktopPet-Setup.exe` (설치 파일 이름에 버전을 넣지 않음)
+- 태그와 `package.json` 버전이 다르면 Actions가 멈춤. `npm ci`를 쓰므로 의존성을 바꾸면 `package-lock.json`도 같이 커밋
+- `.github/workflows` 파일을 바꿔 push하려면 PAT에 Workflows 권한이 필요
+- 1.4.0까지는 회사 작업 환경에서 Windows PC에서 직접 빌드할 수 없어서 Linux + Wine으로 설치 프로그램을 만들고 파일을 나눠 옮겼음. 이제는 필요 없음
 - `dist/`, `out/`은 git에 올리지 않음. 빌드 폴더 안에 예전 빌드 결과(`out/` 등)가 남아 있으면 앱 안에 같이 묶여서 용량이 수백 MB로 커지므로 지우고 빌드
-- 지금까지 작업 순서: 테스트용 zip 생성 → Windows에서 직접 확인 → 커밋 → 설치 프로그램 생성
+- 작업 순서: 테스트용 zip 생성 → Windows에서 직접 확인 → 커밋 → 태그 push로 배포
+- 다운로드 페이지(Cloudflare Pages, `m3rri.github.io` 저장소의 `desktop-pet/download/`)와 앱 안 자동 업데이트는 아직 (프로젝트 문서 distribution-page.md 참고)
 
 ---
 
@@ -120,19 +124,19 @@ npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-
 
 ---
 
-## 7. 남은 시간 알림 (1.4.0)
+## 7. 남은 시간 알림 (1.4.0, 1.4.1)
 
 - 더블클릭 3번째마다 메인 `talk()`가 `countdownMessage(settings.countdown)`를 말함. 설정이 꺼져 있거나 비어 있으면 평소 대사
 - 문구 규칙은 `src/countdown.js` 한 곳에 모여 있음 (퇴근: 정색 `COLD`, 이모지 단계 `WORK_EMOJI`·`STEPS` / 마감: 종류별 말 `DEADLINE_KINDS`, 여유 `RELAXED`, 슬슬 `NUDGE`, 일수 단계). 바꾸면 `test/countdown.test.js`도 같이 고칠 것
-- 설정: `settings.countdown = { mode: 'work' | 'deadline' | 'off', workEnd: 'HH:MM', deadline: 'YYYY-MM-DDTHH:MM' | 'YYYY-MM-DD' | null, deadlineKind: 'exam' | 'assignment' | 'manuscript' | 'project' | 'other' }` (시각이 없으면 그날 밤 12시). 설정 화면 "남은 시간 알림"
+- 설정: `settings.countdown = { mode: 'work' | 'deadline' | 'off', workEnd: 'HH:MM', deadline: 'YYYY-MM-DDTHH:MM' | 'YYYY-MM-DD' | null, deadlineKind: 'exam' | 'assignment' | 'manuscript' | 'project' | 'other', notify: boolean }` (시각이 없으면 그날 밤 12시). 설정 화면 "남은 시간 알림"
+- 먼저 알려주기 (1.4.1): 메인 `checkAlerts()`가 1초마다 `dueAlert(cfg, 지난 확인, 지금)`으로 알릴 시점을 확인. 시점 목록은 `ALERT_MINUTES`
+- 초가 줄어드는 말풍선 (1.4.1): 남은 시간 문구면 `showBubble(text, ms, { r })`로 띄우고, 떠 있는 동안 1초마다 다시 계산해 `bubble:update`로 글자만 바꿈 (폭은 줄이지 않음)
 
 ---
 
 ## 8. 다음 작업 후보 (아직 정하지 않음)
 
-- 퇴근 시간이 되면 더블클릭하지 않아도 캐릭터가 먼저 알려주기 (예: 30분 전, 정각)
 - 요일별 퇴근 시간, 주말에는 알림 끄기
-- 말풍선이 떠 있는 동안 남은 시간 초가 줄어들게
 - 기본 캐릭터에 `dblclick` 동작 이미지 추가
 
 ---
