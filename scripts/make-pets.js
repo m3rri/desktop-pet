@@ -769,6 +769,16 @@ function makeSet(kind, outDir, clicks) {
     ...(kind === 'bird' ? { wings: [0.35, -0.1, 0.2][b] } : {}), ...(kind === 'dog' ? { perk: 1.05 } : {}),
   })), 160));
 
+  // 밥 먹기 (반복): 밥그릇 뒤에 서서 고개를 숙였다 들며 오물오물. 앱이 캐릭터 앞에 밥그릇을 겹쳐 띄워서 아래쪽은 그릇에 가려짐
+  write('eat.png', encodeAPNG([0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const down = i % 2 === 0;
+    return kind === 'bird'
+      ? D({ boil: i, eyes: down ? 'closed' : 'crescent', mouth: down ? 'small' : 'open', pose: { dy: down ? 10 : 3, rot: deg(down ? 6 : 0) }, tail: down ? 0.2 : -0.1 })
+      : D({ boil: i, eyes: down ? 'closed' : 'crescent', mouth: down ? 'munch' : 'w', blush: 1.15, pose: { dy: down ? 8 : 4, sy: down ? 0.92 : 0.96, sx: down ? 1.04 : 1.02 },
+        tail: i % 4 < 2 ? 0.25 : -0.25 });
+  }), 150));
+  writeBowls(outDir, PET_FOOD[kind], kind);
+
   fs.writeFileSync(path.join(outDir, 'pet.json'), JSON.stringify({
     name: NAMES[kind], size: 128, speed: 80, facing: 'right', sleepAfterSec: 600, phrases: PHRASES[kind],
   }, null, 2) + '\n');
@@ -944,6 +954,140 @@ function carrotProp({ F, part, ph, boil }, bite, i) {
   if (bite && i % 2 === 1) for (const [cx, cy] of [[-7, -24], [7, -33], [-4, -19]]) F(blob(cx, cy, 1.1, 1.1, {}), [250, 150, 70]); // 부스러기
 }
 
+// ---------- 밥그릇 (더블클릭하면 캐릭터가 먹으러 옴) ----------
+// 캐릭터와 따로 띄우는 창에 그리는 112x72 이미지. 캐릭터 그림과 같은 128 기준 픽셀 크기라 캐릭터 크기 설정을 따라 같이 커지고 작아짐.
+// 캐릭터마다 다른 음식: 곰 연어(한입 베어 문 자리에 주황 살), 고양이 생선, 푸들 사료, 토끼 당근, 쿼카 나뭇잎, 오목눈이 씨앗.
+// level: 2 가득 / 1 반쯤 / 0 빈 그릇 (먹는 동안 줄어듦)
+const BOWL_W = 112, BOWL_H = 72;
+const BOWL = { body: [150, 196, 232], rim: [208, 230, 248], inside: [100, 138, 178], paw: [255, 248, 236] };
+const minus = (a, b) => ({ bbox: a.bbox, inside: (x, y) => a.inside(x, y) && !b.inside(x, y) });
+const rotAround = (pts, cx, cy, a) => rotPts(pts, [cx, cy], a);
+
+function drawBowl(px, food, level, boil = 0) {
+  const F = (shape, color, alpha) => fill(px, SCREEN, shape, color, alpha);
+  const ph = boil * 2.1;
+  const cx = 56, rimY = 40;
+  // 그릇 몸통 (위가 넓고 아래가 좁은 사발)
+  const bodyPts = smoothPts([[11, rimY], [101, rimY], [94, 58], [84, 67], [28, 67], [18, 58]], 2, 1.4);
+  part(F, polygon(bodyPts), BOWL.body, bodyPts, { r: 1.9, seed: 81, boil, gaps: [[0.62, 0.04]] });
+  for (const [x, y, r] of [[cx, 59.5, 3.4], [cx - 5, 54.6, 1.6], [cx, 53.4, 1.7], [cx + 5, 54.6, 1.6]]) F(blob(x, y, r, r * 0.9, {}), BOWL.paw); // 앞면 발자국 무늬
+  // 입구: 바깥 테두리 타원 + 안쪽 그늘
+  const outer = blob(cx, rimY, 45, 9.5, { wob: 0.01, phase: ph }), inner = blob(cx, rimY - 0.6, 38.5, 6.6, { wob: 0.01, phase: ph + 1 });
+  F(outer, BOWL.rim);
+  F(inner, BOWL.inside);
+  // 음식 (입구 위로 소복이)
+  if (level > 0) FOODS[food](F, level, boil);
+  // 앞쪽 테두리를 음식 위에 다시 그려서 음식이 그릇 안에 담긴 것처럼
+  F({ bbox: outer.bbox, inside: (x, y) => outer.inside(x, y) && !inner.inside(x, y) && y > rimY - 1 }, BOWL.rim);
+  F(sketchLine(blobPts(cx, rimY, 45, 9.5, { wob: 0.01, phase: ph }), { r: 1.7, seed: 83, boil, gaps: [[0.3, 0.03]] }), INK);
+  if (level === 0) for (const [x, y] of [[44, 40], [61, 41.5], [70, 39]]) F(blob(x, y, 1.3, 1, {}), FOOD_CRUMB[food]); // 빈 그릇에 남은 부스러기
+}
+
+const FOOD_CRUMB = { salmon: [250, 140, 90], fish: [150, 168, 190], kibble: [176, 120, 72], carrot: [250, 150, 70], leaf: [128, 196, 108], seed: [222, 196, 150] };
+
+// 생선 한 마리: 머리(왼쪽)에 눈, 오른쪽에 꼬리. bite: 등에 한입 베어 문 자리 (연어는 안쪽 주황 살이 보임)
+function fishShape(F, { x, y, len, ang, skin, belly, bite = null, flesh = null, seed, boil }) {
+  const rx = len / 2, ry = len * 0.2;
+  const R = (pts) => rotAround(pts, x, y, ang);
+  const bodyPts = R(blobPts(x, y, rx, ry, { phase: boil }));
+  const tailPts = R(smoothPts([[x + rx - 3, y], [x + rx + ry * 1.3, y - ry * 1.1], [x + rx + ry * 0.9, y], [x + rx + ry * 1.3, y + ry * 1.1]], 1, 1));
+  let body = polygon(bodyPts);
+  part(F, polygon(tailPts), skin, tailPts, { r: 1.2, rough: 0.3, seed: seed + 1, boil, gaps: [[0.98, 0.02]] });
+  let biteShape = null;
+  if (bite) {
+    const [bx, by] = R([[x + bite.dx, y - ry * 0.75]])[0];
+    biteShape = blob(bx, by, bite.r, bite.r * 0.85, { wob: 0.08, phase: seed });
+    body = minus(body, biteShape);
+  }
+  F(body, skin);
+  F(both(body, polygon(R(blobPts(x, y + ry * 0.45, rx * 0.85, ry * 0.5, {})))), belly); // 배 쪽 밝은 색
+  if (biteShape) { // 베어 문 자리 안쪽: 주황 살 + 흰 결
+    const [bx, by] = R([[x + bite.dx, y - ry * 0.75]])[0];
+    const ring = minus(both(polygon(bodyPts), blob(bx, by, bite.r + 5, (bite.r + 5) * 0.85, {})), biteShape);
+    F(ring, flesh);
+    for (const k of [-1, 1]) F(both(ring, stroke([[bx + k * (bite.r + 1.5), by - 4], [bx + k * (bite.r + 0.6), by + 4]], 0.45)), [255, 236, 220]);
+  }
+  const outline = sketchLine(bodyPts, { r: 1.25, rough: 0.3, seed, boil, gaps: [[0.97, 0.03]] });
+  F(biteShape ? minus(outline, biteShape) : outline, INK); // 베어 문 자리에는 몸 외곽선이 없음
+  if (biteShape) { // 베어 문 자리 테두리는 몸 안쪽에만
+    const [bx, by] = R([[x + bite.dx, y - ry * 0.75]])[0];
+    F(both(polygon(bodyPts), sketchLine(blobPts(bx, by, bite.r, bite.r * 0.85, { wob: 0.08, phase: seed }), { r: 0.9, rough: 0.2, seed: seed + 3, boil })), INK);
+  }
+  const [ex, ey] = R([[x - rx * 0.62, y - ry * 0.15]])[0];
+  F(blob(ex, ey, 1.4, 1.4, {}), INK); // 눈
+  F(stroke(R([[x - rx * 0.4, y - ry * 0.7], [x - rx * 0.32, y + ry * 0.6]]), 0.55), INK); // 아가미
+}
+
+const FOODS = {
+  salmon(F, level, boil) { // 곰: 연어. 등을 한입 베어 물어 안쪽 주황 살이 보임
+    // 가득: 등 가운데를 한입 / 반쯤: 머리 쪽을 크게 먹어 꼬리 쪽만 남음
+    if (level === 2) fishShape(F, { x: 55, y: 31, len: 58, ang: -0.08, skin: [188, 196, 212], belly: [244, 196, 186], bite: { dx: 2, r: 7 }, flesh: [250, 136, 84], seed: 120, boil });
+    else fishShape(F, { x: 58, y: 33, len: 44, ang: -0.08, skin: [188, 196, 212], belly: [244, 196, 186], bite: { dx: -15, r: 10 }, flesh: [250, 136, 84], seed: 121, boil });
+  },
+  fish(F, level, boil) { // 고양이: 생선 두 마리 (반쯤이면 한 마리)
+    if (level === 2) fishShape(F, { x: 68, y: 30, len: 36, ang: 0.22, skin: [132, 152, 178], belly: [222, 230, 240], seed: 150, boil });
+    fishShape(F, { x: 47, y: 34, len: 42, ang: -0.18, skin: [150, 168, 190], belly: [222, 230, 240], seed: 140, boil });
+  },
+  kibble(F, level, boil) { // 푸들(그리고 사용자 캐릭터 기본): 동글동글 사료
+    const all = [[30, 37], [40, 36], [50, 37], [60, 36], [70, 37], [80, 36], [35, 31], [45, 30], [55, 30], [65, 30], [75, 31], [50, 25], [60, 25]]; // 납작하게 쌓아서 먹는 얼굴을 가리지 않게
+    const list = level === 2 ? all : all.slice(0, 8);
+    list.forEach(([x, y], i) => {
+      const k = B4(x, y, 5.4, 4.4, boil + i);
+      part(F, k.shape, i % 3 ? [184, 126, 76] : [160, 104, 60], k.pts, { r: 1, rough: 0.2, seed: 160 + i, boil, gaps: [[0.98, 0.02]] });
+      F(blob(x - 1.4, y - 1.2, 1.4, 1, {}), [214, 168, 120]); // 반짝
+    });
+  },
+  carrot(F, level, boil) { // 토끼: 뾰족한 끝을 그릇 안에 묻고 비스듬히 꽂힌 당근 (잎이 위로)
+    const list = level === 2 ? [[40, 36, -0.45], [56, 34, -0.05], [72, 36, 0.4]] : [[56, 35, -0.15]];
+    list.forEach(([x, y, a], i) => {
+      const R = (pts) => rotAround(pts, x, y, a);
+      for (const [lx, la] of [[-2.6, -0.45], [0, 0], [2.6, 0.45]]) {
+        const leaf = R(smoothPts([[x + lx * 0.5, y - 17], [x + lx - 2.2, y - 23], [x + lx + la * 5, y - 30], [x + lx + 2.2, y - 23]], 2, 1));
+        part(F, polygon(leaf), [126, 196, 108], leaf, { r: 0.9, rough: 0.2, seed: 170 + i * 3 + lx, boil, gaps: [[0.98, 0.02]] });
+      }
+      const body = R(smoothPts([[x - 6, y - 17], [x + 6, y - 17], [x + 4.6, y - 6], [x + 1.4, y + 5], [x - 1.4, y + 5], [x - 4.6, y - 6]], 2, 1));
+      part(F, polygon(body), [250, 150, 70], body, { r: 1.1, rough: 0.25, seed: 175 + i, boil, gaps: [[0.98, 0.02]] });
+      for (const t of [-12, -6]) F(stroke(R([[x - 3.6, y + t], [x + 0.6, y + t + 1]]), 0.5), [214, 112, 44]);
+    });
+  },
+  leaf(F, level, boil) { // 쿼카: 나뭇잎 더미
+    const list = level === 2 ? [[42, 34, -0.6], [70, 34, 0.6], [56, 30, 0], [48, 24, -0.3], [64, 25, 0.35]] : [[48, 34, -0.5], [62, 33, 0.4]];
+    list.forEach(([x, y, a], i) => {
+      const R = (pts) => rotAround(pts, x, y, a);
+      const leaf = R(smoothPts([[x - 13, y], [x - 4, y - 6.5], [x + 13, y], [x - 4, y + 6.5]], 2, 1));
+      part(F, polygon(leaf), i % 2 ? [128, 196, 108] : [112, 180, 96], leaf, { r: 1, rough: 0.25, seed: 180 + i, boil, gaps: [[0.98, 0.02]] });
+      F(stroke(R([[x - 11, y], [x + 10, y]]), 0.5), [86, 146, 76]);
+    });
+  },
+  seed(F, level, boil) { // 오목눈이: 씨앗 (줄무늬 해바라기씨 + 작은 곡식)
+    const all = [[34, 37, 0.4], [44, 35, -0.3], [54, 37, 0.1], [64, 35, 0.5], [74, 37, -0.4], [39, 30, -0.6], [49, 29, 0.3], [59, 29, -0.2], [69, 30, 0.6], [46, 24, 0.2], [56, 24, -0.5], [66, 25, 0.1]];
+    const list = level === 2 ? all : all.slice(0, 7);
+    list.forEach(([x, y, a], i) => {
+      const sun = i % 3 === 0;
+      const pts = rotAround(blobPts(x, y, sun ? 5.5 : 3.6, sun ? 2.8 : 2.4, {}), x, y, a);
+      part(F, polygon(pts), sun ? [96, 90, 96] : [232, 206, 156], pts, { r: 0.8, rough: 0.15, seed: 190 + i, boil, gaps: [[0.98, 0.02]] });
+      if (sun) F(stroke(rotAround([[x - 4, y], [x + 4, y]], x, y, a), 0.6), [236, 230, 220]); // 해바라기씨 줄무늬
+    });
+  },
+};
+// 동글동글한 작은 사료 한 알 (도형 + 외곽선 점)
+function B4(x, y, rx, ry, phase) { return { shape: blob(x, y, rx, ry, { n: 2.2, wob: 0.05, phase }), pts: blobPts(x, y, rx, ry, { n: 2.2, wob: 0.05, phase }) }; }
+
+const PET_FOOD = { bear: 'salmon', cat: 'fish', dog: 'kibble', rabbit: 'carrot', quokka: 'leaf', bird: 'seed' };
+
+// 밥그릇 3장(가득·반쯤·빈 그릇)을 캐릭터 폴더에 씀. 선 일렁임은 대기 상태처럼 3장
+function writeBowls(outDir, food, label) {
+  const save = [CW, CH];
+  CW = BOWL_W; CH = BOWL_H;
+  for (const [name, level] of [['bowl_full.png', 2], ['bowl_half.png', 1], ['bowl_empty.png', 0]]) {
+    const frames = [0, 1, 2].map((b) => frame((px) => drawBowl(px, food, level, b)));
+    const buf = encodeAPNG(frames, 220, BOWL_W, BOWL_H);
+    fs.writeFileSync(path.join(outDir, name), buf);
+    console.log(`${label}/${name}`, buf.length, 'bytes');
+  }
+  [CW, CH] = save;
+}
+
 if (require.main === module) {
 makeSet('bear', path.join(ASSETS, 'pets', 'default'), ['jump', 'headTilt', 'blush', 'honey', 'stretch']);
 makeSet('cat', path.join(ASSETS, 'pets', 'cat'), ['hiss', 'groom', 'hunt', 'heart', 'rub']);
@@ -951,6 +1095,9 @@ makeSet('dog', path.join(ASSETS, 'pets', 'dog'), ['jump', 'tail', 'headTilt', 'r
 makeSet('bird', path.join(ASSETS, 'pets', 'bird'), ['flap', 'birdJump', 'birdHeart', 'headTilt']);
 makeSet('rabbit', path.join(ASSETS, 'pets', 'rabbit'), ['jump', 'blush', 'heart', 'carrot', 'wash']);
 makeSet('quokka', path.join(ASSETS, 'pets', 'quokka'), ['jump', 'headTilt', 'blush', 'heart', 'leaf']);
+// 밥그릇 이미지가 없는 사용자 캐릭터용 기본 밥그릇 (사료)
+fs.mkdirSync(path.join(ASSETS, 'bowl'), { recursive: true });
+writeBowls(path.join(ASSETS, 'bowl'), 'kibble', 'bowl');
 
 // ---------- 앱 아이콘, 트레이 아이콘 ----------
 // 크기마다 다시 그려야 작은 크기에서도 선명함. 곰이 128 캔버스에서 차지하는 영역(약 x 24~104, y 59~119)을 가운데에 맞춤
@@ -968,4 +1115,4 @@ fs.writeFileSync(path.join(ASSETS, 'tray.png'), icons.find((i) => i.size === 128
 console.log('icon.ico', ICON_SIZES.join(','), '/ icon.png / tray.png');
 }
 
-module.exports = { drawPet, frame, heart, encodePNG, W, H };
+module.exports = { drawPet, frame, heart, encodePNG, W, H, writeBowls, PET_FOOD };

@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { findStateFiles, listPets, choosePet, effectiveValues, loadPetFromDir } = require('../src/pets');
+const { findStateFiles, listPets, choosePet, effectiveValues, loadPetFromDir, loadBowlImages } = require('../src/pets');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pets-test-'));
 const mk = (dir, files, conf) => {
@@ -79,6 +79,14 @@ t('더블클릭: dblclick 이미지와 pet.json 대사 (문자열이 아니거�
   assert.strictEqual(loaded.states.dblclick.variants.length, 2);
   assert.deepStrictEqual(loaded.phrases, ['안녕', '반가워']);
   assert.deepStrictEqual(loadPetFromDir(mk(path.join(tmp, 'quiet'), ['idle.png'])).phrases, []);
+});
+
+t('밥그릇: eat 상태(반복)와 그릇 이미지 3장, 하나라도 없으면 null', () => {
+  const dir = mk(path.join(tmp, 'bowl'), ['idle.png', 'eat.png', 'bowl_full.png', 'bowl_half.png', 'bowl_empty.png']);
+  assert.strictEqual(loadPetFromDir(dir).states.eat.loop, true);
+  assert.deepStrictEqual(Object.keys(loadBowlImages(dir)), ['full', 'half', 'empty']);
+  assert.strictEqual(loadPetFromDir(dir).states.bowl, undefined); // bowl_*.png 는 상태 이미지가 아님
+  assert.strictEqual(loadBowlImages(mk(path.join(tmp, 'bowl2'), ['idle.png', 'bowl_full.png'])), null);
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

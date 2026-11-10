@@ -229,6 +229,7 @@ function render(s) {
   renderDisplay();
   renderCountdown();
   $('boil').checked = state.boilStatic;
+  $('bowl-show').checked = state.bowlShow;
   $('fullscreen').checked = state.hideOnFullscreen;
   $('fullscreen').disabled = !state.fullscreenAvailable;
   $('fullscreen-hint').textContent = state.fullscreenAvailable ? '게임, 영상, 브라우저 F11 등' : 'Windows에서만 쓸 수 있습니다';
@@ -242,6 +243,7 @@ function render(s) {
 $('open-userdata').addEventListener('click', () => api.openFolder('userData'));
 
 $('boil').addEventListener('change', (e) => set('boilStatic', e.target.checked));
+$('bowl-show').addEventListener('change', (e) => set('bowlShow', e.target.checked));
 
 $('create-pet-folder').addEventListener('click', async () => {
   const r = await api.createPetFolder();

@@ -8,6 +8,7 @@ const STATE_DEFAULTS = {
   walk: { loop: true },
   click: { loop: false },
   dblclick: { loop: false }, // 없어도 됨 (더블클릭하면 말풍선만 뜸)
+  eat: { loop: true },        // 밥그릇에서 먹는 동안. 없으면 idle
   sleep: { loop: true },
   drag: { loop: true },
 };
@@ -123,6 +124,16 @@ function loadPetFromDir(dir, { id = `folder:${dir}`, log = () => {} } = {}) {
   };
 }
 
+// 밥그릇 이미지 (bowl_full.png, bowl_half.png, bowl_empty.png). 하나라도 없으면 null → 앱 기본 밥그릇
+const BOWL_FILES = { full: 'bowl_full.png', half: 'bowl_half.png', empty: 'bowl_empty.png' };
+function loadBowlImages(dir) {
+  const out = {};
+  for (const [k, f] of Object.entries(BOWL_FILES)) {
+    try { out[k] = { mime: 'image/png', data: fs.readFileSync(path.join(dir, f)) }; } catch (_) { return null; }
+  }
+  return out;
+}
+
 // 미리보기용: 대표(idle) 이미지 첫 파일
 function previewOf(dir) {
   const file = findStateFiles(dir, 'idle')[0];
@@ -132,5 +143,5 @@ function previewOf(dir) {
 
 module.exports = {
   STATE_DEFAULTS, IMAGE_TYPES, BASE_DEFAULTS,
-  findStateFiles, hasIdle, listPets, choosePet, effectiveValues, loadPetFromDir, previewOf,
+  findStateFiles, hasIdle, listPets, choosePet, effectiveValues, loadPetFromDir, previewOf, loadBowlImages,
 };

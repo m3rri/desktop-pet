@@ -1,6 +1,6 @@
 # 인수인계 — 집에서 이어서 작업하기
 
-마지막 갱신: 2026-11-10 (v1.4.1 커밋 시점)
+마지막 갱신: 2026-11-10 (v1.5.0 커밋 시점)
 
 다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업 후보를 정리했다.
 전체 계획과 지금까지의 변경 이력은 [plan.md](plan.md), 사용법은 [README.md](../README.md) 참고.
@@ -9,12 +9,12 @@
 
 ## 1. 현재 상태
 
-- 버전: **1.4.1** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
+- 버전: **1.5.0** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
 - 기본 캐릭터 6종: 곰(default), 검은 고양이(cat), 푸들(dog), 토끼(rabbit), 쿼카(quokka), 오목눈이(bird)
 - 설치 프로그램: [GitHub Releases](https://github.com/m3rri/desktop-pet/releases/latest) (`DesktopPet-Setup.exe`, 태그 push로 자동 배포)
 - GitHub: `m3rri/desktop-pet` (개인 계정, main 브랜치). 커밋 후 push는 직접 함
 
-### 클릭 동작 (1.4.1 기준, 클릭하면 이 중 하나를 무작위로 재생)
+### 클릭 동작 (1.5.0 기준, 클릭하면 이 중 하나를 무작위로 재생)
 
 | 캐릭터 | 클릭 동작 |
 |---|---|
@@ -53,6 +53,7 @@ npm test       # 모니터 선택·캐릭터 폴더 테스트 (27개)
 | `src/pets.js` | 캐릭터 폴더 읽기. 상태별 이미지 파일 찾기, 기본값(`STATE_DEFAULTS`) |
 | `src/displays.js` | 모니터 식별·저장·복원 (테스트 있음) |
 | `src/fullscreen.js` | koffi로 user32 호출해 전체 화면 앱 감지 |
+| `src/bowl.*` | 밥그릇 창. 그릇 이미지 표시, 투명 영역 클릭 통과, 드래그·더블클릭 |
 | `src/bubble.*` | 말풍선 창. 글자 크기를 재고 손그림 테두리를 그림 |
 | `src/countdown.js` | 남은 시간 알림 문구 (테스트 있음) |
 | `src/settings.*` | 설정 창 (캐릭터, 움직임, 화면, 기타) |
@@ -135,14 +136,23 @@ npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup.
 
 ---
 
-## 8. 다음 작업 후보 (아직 정하지 않음)
+## 8. 밥그릇 (1.5.0)
+
+- 밥그릇은 별도 투명 창(`src/bowl.*`). 메인의 `createBowlWindow()`, 위치·남은 양은 `settings.bowl = { show, x, y, level }`
+- 밥그릇 더블클릭 → `startEat()`: `behavior.mission = 'eat'`, 목표는 `eatSpot()`(그릇 뒤), 속도 `EAT_SPEED`(1.05배) → 도착하면 `arriveEat()`: `eat` 상태 + 그릇 창을 앞으로, `EAT_MS` 동안 먹고 그릇을 비움
+- 그만두는 곳은 `cancelEat()` 하나 (캐릭터 끌기·클릭·더블클릭, 그릇 옮기기, 숨기기, 캐릭터 바꾸기)
+- 그림: `scripts/make-pets.js`의 `drawBowl()`·`FOODS`(음식별), `PET_FOOD`(캐릭터별 음식), `writeBowls()`, makeSet의 `eat.png`. 그릇 이미지는 112x72
+
+---
+
+## 9. 다음 작업 후보 (아직 정하지 않음)
 
 - 요일별 퇴근 시간, 주말에는 알림 끄기
 - 기본 캐릭터에 `dblclick` 동작 이미지 추가
 
 ---
 
-## 9. 새 세션 시작용 프롬프트
+## 10. 새 세션 시작용 프롬프트
 
 ```
 바탕화면에 캐릭터가 돌아다니는 Electron 앱(desktop-pet)을 이어서 작업하려고 해.

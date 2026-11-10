@@ -46,21 +46,21 @@ function encodeICO(images) {
   return Buffer.concat([header, ...entries, ...images.map((i) => i.png)]);
 }
 
-// APNG: acTL(애니메이션 정보) + 프레임마다 fcTL(위치·지연) + IDAT/fdAT(이미지)
-function encodeAPNG(frames, delayMs) {
-  const parts = [SIG, chunk('IHDR', ihdr())];
+// APNG: acTL(애니메이션 정보) + 프레임마다 fcTL(위치·지연) + IDAT/fdAT(이미지). w, h: 캔버스 크기 (기본 128)
+function encodeAPNG(frames, delayMs, w = W, h = H) {
+  const parts = [SIG, chunk('IHDR', ihdr(w, h))];
   const actl = Buffer.alloc(8); actl.writeUInt32BE(frames.length, 0); actl.writeUInt32BE(0, 4); // 0 = 무한 반복
   parts.push(chunk('acTL', actl));
   let seq = 0;
   frames.forEach((px, i) => {
     const fctl = Buffer.alloc(26);
-    fctl.writeUInt32BE(seq++, 0); fctl.writeUInt32BE(W, 4); fctl.writeUInt32BE(H, 8);
+    fctl.writeUInt32BE(seq++, 0); fctl.writeUInt32BE(w, 4); fctl.writeUInt32BE(h, 8);
     fctl.writeUInt32BE(0, 12); fctl.writeUInt32BE(0, 16);
     fctl.writeUInt16BE(delayMs, 20); fctl.writeUInt16BE(1000, 22);
     fctl[24] = 1; // dispose: 다음 프레임 전에 지움
     fctl[25] = 0; // blend: 덮어쓰기
     parts.push(chunk('fcTL', fctl));
-    const data = idat(px);
+    const data = idat(px, w, h);
     if (i === 0) parts.push(chunk('IDAT', data));
     else { const s = Buffer.alloc(4); s.writeUInt32BE(seq++); parts.push(chunk('fdAT', Buffer.concat([s, data]))); }
   });

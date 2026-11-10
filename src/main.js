@@ -9,7 +9,7 @@ const { countdownMessage, dueAlert, validateCountdown } = require('./countdown')
 // 설치판은 productName("Desktop Pet")이 앱 이름이 되어 폴더가 %APPDATA%\Desktop Pet 으로 바뀌므로,
 // zip판에서 쓰던 설정을 그대로 이어 쓰도록 이름을 따로 지정. 단일 실행 잠금보다 먼저 해야 함
 app.setPath('userData', path.join(app.getPath('appData'), 'desktop-pet'));
-const { listPets, choosePet, effectiveValues, loadPetFromDir, previewOf, hasIdle } = require('./pets');
+const { listPets, choosePet, effectiveValues, loadPetFromDir, previewOf, hasIdle, loadBowlImages } = require('./pets');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 const TRAY_ICON = path.join(ASSETS, 'tray.png');
@@ -27,6 +27,7 @@ let win = null;
 let tray = null;
 let settingsWin = null;
 let bubbleWin = null;    // 말풍선 창 (캐릭터 창과 따로 띄워 캐릭터 위에 붙여 다님)
+let bowlWin = null;      // 밥그릇 창 (화면에 고정, 드래그로 옮김)
 let pet = null;          // 지금 캐릭터 (pets.js loadPetFromDir 결과 + size/speed/sleepAfterSec 실제 적용값)
 let quitting = false;
 let settings = {
@@ -43,8 +44,11 @@ let settings = {
   // deadlineKind: 마감 종류 (exam 시험, assignment 과제, manuscript 원고, project 프로젝트, other 기타)
   // notify: 정해진 시점(퇴근 1시간·30분·10분 전·정각 / 마감 하루·1시간·10분 전·정각)에 더블클릭하지 않아도 먼저 알려줌
   countdown: { mode: 'work', workEnd: '18:00', deadline: null, deadlineKind: 'exam', notify: true },
+  // 밥그릇: show 보이기, x·y 창 위치(null이면 화면 오른쪽 아래), level 남은 음식 (2 가득 / 1 반쯤 / 0 빈 그릇)
+  bowl: { show: true, x: null, y: null, level: 2 },
 };
 const DEFAULT_COUNTDOWN = { ...settings.countdown };
+const DEFAULT_BOWL = { ...settings.bowl };
 
 // 보이기/숨기기: 사용자가 숨긴 것과 전체 화면 때문에 자동으로 숨긴 것을 따로 관리
 const visibility = {
@@ -78,6 +82,7 @@ function loadCurrentPet() {
       const loaded = loadPetFromDir(choice.dir, { id: choice.id, log });
       loaded.name = choice.name;
       Object.assign(loaded, effectiveValues(loaded.base, settings));
+      loaded.bowl = loadBowlImages(choice.dir) || loadBowlImages(path.join(ASSETS, 'bowl')); // 캐릭터 밥그릇이 없으면 기본(사료)
       log('pet loaded:', choice.id, Object.entries(loaded.states).map(([n, st]) => `${n}(${st.variants.map((v) => v.file).join(',')})`).join(' '));
       return loaded;
     } catch (e) {
@@ -94,6 +99,7 @@ function loadSettings() {
   try {
     settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) };
     settings.countdown = { ...DEFAULT_COUNTDOWN, ...(settings.countdown || {}) }; // 예전 설정 파일에는 없음
+    settings.bowl = { ...DEFAULT_BOWL, ...(settings.bowl || {}) };
   } catch (e) {
     if (e.code !== 'ENOENT') log('settings 읽기 실패, 기본값 사용:', e.message);
   }
@@ -144,6 +150,10 @@ function onDisplaysChanged(reason) {
   displayChangeTimer = setTimeout(() => {
     log('displays changed:', reason, screen.getAllDisplays().map((d) => `${d.label}${JSON.stringify(d.bounds)}`).join(' '));
     ensureOnDisplay(activeDisplay());
+    if (bowlWin && !bowlWin.isDestroyed()) { // 그릇이 있던 모니터를 빼면 보이는 곳으로
+      const b = bowlStartBounds();
+      bowlWin.setBounds(b);
+    }
     updateTrayMenu();
     notifySettingsChanged();
   }, 500);
@@ -177,6 +187,7 @@ function resizePetWindow(oldSize) {
   moveWindow(behavior.x, behavior.y);
   ensureOnDisplay(activeDisplay());
   sendToPet('pet:resize', pet.size);
+  resizeBowl();
 }
 
 // 크기·속도·잠드는 시간 다시 계산 (이미지는 다시 읽지 않음)
@@ -194,6 +205,8 @@ function reloadPet() {
   if (tray) tray.setToolTip(`Desktop Pet - ${pet.name}`);
   sendToPet('pet:reload'); // 렌더러가 pet:load로 이미지를 다시 받아 디코딩
   hideBubble();
+  cancelEat();
+  if (bowlWin && !bowlWin.isDestroyed()) bowlWin.webContents.send('bowl:reload'); // 캐릭터마다 음식이 다름
   if (behavior.state === 'walk') { setState('idle'); scheduleNextMove(); }
 }
 
@@ -208,6 +221,7 @@ const behavior = {
   lastFrameAt: 0,
   dragging: false,
   dragOffset: { x: 0, y: 0 },
+  mission: null,       // 'eat' 밥 먹으러 가는 중 / 'eating' 먹는 중
   cursorInside: false,
   talkUntil: 0,        // 말풍선을 띄운 동안은 걷기 시작하지 않음
 };
@@ -369,7 +383,7 @@ function checkAlerts() {
   const text = countdownMessage(settings.countdown, now, () => r);
   if (!text) return;
   log('alert:', due.key, text);
-  setState('click', { force: true }); // 눈에 띄게 클릭 동작 하나를 재생하면서 말함
+  if (!behavior.mission) setState('click', { force: true }); // 눈에 띄게 클릭 동작 하나를 재생하면서 말함 (밥 먹으러 가거나 먹는 중이면 그대로)
   behavior.talkUntil = Date.now() + ALERT_SHOW_MS;
   showBubble(text, ALERT_SHOW_MS, { r });
 }
@@ -410,6 +424,7 @@ function tick() {
   if (!win || win.isDestroyed() || !win.isVisible()) return;
   if (behavior.dragging) { followCursor(); return; }
   updateCursor();
+  updateBowlCursor();
 
   // 잠자기: OS 기준으로 키보드·마우스 입력이 없던 시간
   const idleSec = powerMonitor.getSystemIdleTime();
@@ -417,13 +432,13 @@ function tick() {
     if (idleSec < 1) { setState('idle'); scheduleNextMove(); }
     return;
   }
-  const busy = behavior.state === 'click' || behavior.state === 'dblclick';
+  const busy = behavior.state === 'click' || behavior.state === 'dblclick' || behavior.state === 'eat' || !!behavior.mission;
   if (pet.sleepAfterSec > 0 && idleSec >= pet.sleepAfterSec && !busy && now >= behavior.talkUntil) { // 0 = 안 잠
     setState('sleep');
     return;
   }
 
-  if (busy) return; // 렌더러가 재생 종료를 알려줄 때까지 대기
+  if (busy && behavior.mission !== 'eat') return; // 렌더러가 재생 종료를 알려줄 때까지 대기 (밥 먹으러 가는 중이면 계속 걸음)
 
   if (behavior.state === 'idle' && now >= behavior.nextMoveAt && now >= behavior.talkUntil && pet.speed > 0) { // 0 = 안 움직임
     behavior.target = pickTarget();
@@ -431,13 +446,15 @@ function tick() {
   }
 
   if (behavior.state === 'walk') {
+    if (behavior.mission === 'eat') behavior.target = eatSpot(); // 가는 도중에 그릇을 옮겨도 따라감
     const dx = behavior.target.x - behavior.x;
     const dy = behavior.target.y - behavior.y;
     const dist = Math.hypot(dx, dy);
-    const step = pet.speed * dt;
+    const step = (behavior.mission === 'eat' ? (pet.speed > 0 ? pet.speed : 80) * EAT_SPEED : pet.speed) * dt; // 제자리 설정이어도 밥은 먹으러 옴
     if (Math.abs(dx) > 1) setFacing(dx < 0 ? 'left' : 'right');
     if (dist <= step || step <= 0) {
       behavior.x = behavior.target.x; behavior.y = behavior.target.y;
+      if (behavior.mission === 'eat') { moveWindow(behavior.x, behavior.y); arriveEat(); return; }
       setState('idle');
       scheduleNextMove();
     } else {
@@ -446,6 +463,146 @@ function tick() {
     }
     moveWindow(behavior.x, behavior.y);
   }
+}
+
+// ---------- 밥그릇 ----------
+// 캐릭터와 별개인 투명 창. 이미지는 112x72 (캐릭터 128 기준)라 캐릭터 크기 설정에 맞춰 같이 커지고 작아짐.
+// 더블클릭: 음식이 있으면 캐릭터가 평소보다 5% 빠르게 걸어와서 먹음 / 빈 그릇이면 다시 채움
+const BOWL_IMG = { w: 112, h: 72 };
+const BOWL_FEET_Y = 44;      // 먹을 때 캐릭터 발이 오는 높이 (그릇 이미지 기준). 아래쪽 몸은 그릇에 가려짐
+const EAT_SPEED = 1.05;      // 밥 먹으러 갈 때 속도 배율 (묘하게 빠르게)
+const EAT_MS = 5000;         // 먹는 시간. 절반이 지나면 반쯤, 다 먹으면 빈 그릇
+const EAT_PHRASES = ['냠냠 잘 먹었다! 😋', '배불러~ 😊', '맛있었어! 또 줘'];
+const bowlDrag = { active: false, offset: { x: 0, y: 0 }, timer: null, interactive: false };
+let eatTimers = [];
+
+const bowlScale = () => pet.size / 128;
+const bowlSize = () => ({ width: Math.round(BOWL_IMG.w * bowlScale()), height: Math.round(BOWL_IMG.h * bowlScale()) });
+
+// 저장된 위치가 없거나 연결된 모니터 밖이면 캐릭터가 있는 모니터의 오른쪽 아래
+function bowlStartBounds() {
+  const { width, height } = bowlSize();
+  const { x, y } = settings.bowl;
+  if (x !== null && y !== null) {
+    const onScreen = screen.getAllDisplays().some((d) => x + width / 2 >= d.bounds.x && x + width / 2 < d.bounds.x + d.bounds.width && y + height / 2 >= d.bounds.y && y + height / 2 < d.bounds.y + d.bounds.height);
+    if (onScreen) return { x, y, width, height };
+  }
+  const a = (win && !win.isDestroyed() ? activeDisplay() : screen.getPrimaryDisplay()).workArea;
+  return { x: a.x + a.width - width - 40, y: a.y + a.height - height - 20, width, height };
+}
+
+function createBowlWindow() {
+  if (bowlWin && !bowlWin.isDestroyed()) return;
+  bowlWin = new BrowserWindow({
+    ...bowlStartBounds(), show: false,
+    transparent: true, frame: false, resizable: false, hasShadow: false, skipTaskbar: true, alwaysOnTop: true,
+    // focusable: false로 두면 설정 창을 열었다 닫은 뒤 그릇이 클릭·드래그를 받지 못했음 (Windows).
+    // 캐릭터 창처럼 포커스를 받을 수 있게 두고, 띄울 때만 showInactive로 다른 창의 포커스를 뺏지 않음
+    webPreferences: { preload: path.join(__dirname, 'bowl-preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  bowlWin.setAlwaysOnTop(true, 'screen-saver');
+  bowlWin.setIgnoreMouseEvents(true, { forward: true }); // 그릇이 그려진 곳에 커서가 오면 렌더러가 해제
+  bowlWin.loadFile(path.join(__dirname, 'bowl.html'));
+  bowlWin.once('ready-to-show', applyBowlVisibility);
+  bowlWin.on('closed', () => { bowlWin = null; });
+}
+
+function applyBowlVisibility() {
+  if (!bowlWin || bowlWin.isDestroyed()) return;
+  const show = settings.bowl.show && win && !win.isDestroyed() && win.isVisible();
+  if (show && !bowlWin.isVisible()) bowlWin.showInactive();
+  else if (!show && bowlWin.isVisible()) bowlWin.hide();
+}
+
+// 캐릭터 크기가 바뀌면 그릇도 아래 가운데를 고정한 채 크기를 바꿈
+function resizeBowl() {
+  if (!bowlWin || bowlWin.isDestroyed()) return;
+  const b = bowlWin.getBounds(), { width, height } = bowlSize();
+  if (b.width === width && b.height === height) return;
+  bowlWin.setBounds({ x: Math.round(b.x + (b.width - width) / 2), y: b.y + b.height - height, width, height });
+}
+
+function setBowlLevel(level) {
+  settings.bowl.level = level;
+  saveSettings();
+  if (bowlWin && !bowlWin.isDestroyed()) bowlWin.webContents.send('bowl:level', level);
+}
+
+// 먹을 때 캐릭터 창 위치: 그릇 가운데 뒤에 서서 발이 그릇 안쪽 높이에 오게
+function eatSpot() {
+  const b = bowlWin.getBounds(), k = bowlScale();
+  return { x: b.x + b.width / 2 - pet.size / 2, y: b.y + BOWL_FEET_Y * k - 118 * k };
+}
+
+function startEat() {
+  if (!bowlWin || behavior.dragging || behavior.mission) return;
+  // 표시할 모니터를 고정해 두었으면 다른 모니터의 그릇까지는 가지 않음
+  const fixed = fixedDisplay();
+  if (fixed && screen.getDisplayMatching(bowlWin.getBounds()).id !== fixed.id) {
+    showBubble('밥그릇이 너무 멀어 😢', 3000);
+    return;
+  }
+  hideBubble();
+  behavior.mission = 'eat';
+  behavior.target = eatSpot();
+  setState('walk');
+  log('eat: go to bowl');
+}
+
+function arriveEat() {
+  behavior.mission = 'eating';
+  setState(pet.states.eat ? 'eat' : 'idle');
+  if (bowlWin && !bowlWin.isDestroyed()) bowlWin.moveTop(); // 그릇이 캐릭터 앞에 오게
+  eatTimers = [
+    setTimeout(() => setBowlLevel(1), EAT_MS / 2),
+    setTimeout(() => {
+      setBowlLevel(0);
+      behavior.mission = null;
+      setState('idle');
+      scheduleNextMove();
+      const text = EAT_PHRASES[Math.floor(Math.random() * EAT_PHRASES.length)];
+      behavior.talkUntil = Date.now() + 2500;
+      showBubble(text, 2500);
+      log('eat: done');
+    }, EAT_MS),
+  ];
+}
+
+// 밥그릇 더블클릭·우클릭 메뉴: 빈 그릇이면 다시 채우고, 음식이 있으면 캐릭터를 부름
+function bowlAction() {
+  if (settings.bowl.level === 0) { setBowlLevel(2); log('bowl: refill'); return; }
+  startEat();
+}
+
+// 끌거나 클릭하는 등으로 밥 먹기를 그만둠. 먹던 음식은 그대로
+function cancelEat() {
+  eatTimers.forEach(clearTimeout);
+  eatTimers = [];
+  if (!behavior.mission) return;
+  const wasEating = behavior.mission === 'eating';
+  behavior.mission = null;
+  if (wasEating && behavior.state === 'eat') { setState('idle'); scheduleNextMove(); }
+}
+
+// 다른 창(설정 창 등)이 포커스를 가져갔다 돌아오면 클릭 통과 상태가 풀리거나 꼬이는 경우가 있어서 다시 적용.
+// 렌더러도 지금 커서 위치로 다시 판정하게 커서 정보를 한 번 새로 보냄
+function resyncMouseWindows() {
+  if (bowlWin && !bowlWin.isDestroyed()) {
+    bowlWin.setIgnoreMouseEvents(!bowlDrag.interactive, { forward: true });
+    bowlDrag.cursorInside = true; // 다음 updateBowlCursor에서 커서가 밖이어도 null을 한 번 보냄
+  }
+  behavior.cursorInside = true;
+  log('mouse windows resynced');
+}
+
+// 밥그릇 위 커서 위치를 렌더러에 보냄 (투명 영역 클릭 통과 판정용)
+function updateBowlCursor() {
+  if (!bowlWin || bowlWin.isDestroyed() || !bowlWin.isVisible() || bowlDrag.active) return;
+  const c = screen.getCursorScreenPoint(), b = bowlWin.getBounds();
+  const rel = { x: c.x - b.x, y: c.y - b.y };
+  const inside = rel.x >= 0 && rel.y >= 0 && rel.x < b.width && rel.y < b.height;
+  if (inside || bowlDrag.cursorInside) bowlWin.webContents.send('bowl:cursor', inside ? rel : null);
+  bowlDrag.cursorInside = inside;
 }
 
 // ---------- 렌더러와 통신 ----------
@@ -467,11 +624,13 @@ function registerIpc() {
 
   ipcMain.on('pet:click', () => {
     if (behavior.dragging) return;
+    cancelEat();
     setState('click', { force: true }); // 재생 중에 다시 클릭하면 처음부터
   });
 
   ipcMain.on('pet:dblclick', () => {
     if (behavior.dragging) return;
+    cancelEat();
     talk();
   });
 
@@ -485,6 +644,37 @@ function registerIpc() {
     if (!bubbleWin.isVisible()) bubbleWin.showInactive();
     bubble.hideTimer = setTimeout(hideBubble, bubble.ms);
     startLive();
+  });
+
+  // ---------- 밥그릇 창 ----------
+  ipcMain.handle('bowl:load', () => ({ images: pet.bowl, level: settings.bowl.level }));
+  ipcMain.on('bowl:set-interactive', (_e, v) => {
+    bowlDrag.interactive = !!v;
+    if (bowlWin && !bowlWin.isDestroyed()) bowlWin.setIgnoreMouseEvents(!v, { forward: true });
+  });
+  ipcMain.on('bowl:drag-start', () => {
+    if (!bowlWin || bowlWin.isDestroyed()) return;
+    const c = screen.getCursorScreenPoint(), b = bowlWin.getBounds();
+    bowlDrag.active = true;
+    bowlDrag.offset = { x: c.x - b.x, y: c.y - b.y };
+    clearInterval(bowlDrag.timer);
+    bowlDrag.timer = setInterval(() => { // 렌더러 좌표 대신 OS 커서를 따라감 (캐릭터 드래그와 같은 이유)
+      const p = screen.getCursorScreenPoint(), { width, height } = bowlSize();
+      bowlWin.setBounds({ x: p.x - bowlDrag.offset.x, y: p.y - bowlDrag.offset.y, width, height });
+    }, 16);
+  });
+  ipcMain.on('bowl:drag-end', () => {
+    clearInterval(bowlDrag.timer);
+    bowlDrag.active = false;
+    if (!bowlWin || bowlWin.isDestroyed()) return;
+    const b = bowlWin.getBounds();
+    settings.bowl.x = b.x; settings.bowl.y = b.y;
+    saveSettings();
+    if (behavior.mission === 'eating') cancelEat(); // 먹는 중에 그릇을 치우면 그만 먹음
+  });
+  ipcMain.on('bowl:dblclick', () => { log('bowl: dblclick (level', settings.bowl.level + ')'); bowlAction(); });
+  ipcMain.on('bowl:menu', () => {
+    if (bowlWin && !bowlWin.isDestroyed()) buildBowlMenu().popup({ window: bowlWin });
   });
 
   // 남은 시간 문구가 바뀌어 글자 폭이 달라지면 창 크기·위치만 다시 맞춤 (숨김 타이머는 그대로)
@@ -519,6 +709,7 @@ function registerIpc() {
     if (!win || win.isDestroyed()) return;
     syncPositionFromWindow();
     const c = screen.getCursorScreenPoint();
+    cancelEat();
     behavior.dragging = true;
     behavior.dragOffset = { x: c.x - behavior.x, y: c.y - behavior.y };
     setState('drag');
@@ -602,8 +793,10 @@ function applyVisibility() {
     behavior.lastTick = Date.now();
   } else if (!shouldShow && win.isVisible()) {
     hideBubble();
+    cancelEat();
     win.hide();
   }
+  applyBowlVisibility();
   updateTrayMenu();
 }
 
@@ -691,6 +884,11 @@ function applySetting(key, value) {
       settings.countdown = next;
       break;
     }
+    case 'bowlShow':
+      settings.bowl.show = !!value;
+      if (!value) cancelEat();
+      applyBowlVisibility();
+      break;
     case 'boilStatic':
       settings.boilStatic = !!value;
       reloadPet(); // 렌더러가 이미지를 다시 디코딩하며 적용
@@ -736,6 +934,7 @@ function settingsState() {
     hideOnFullscreen: settings.hideOnFullscreen,
     boilStatic: settings.boilStatic,
     countdown: settings.countdown,
+    bowlShow: settings.bowl.show,
     fullscreenAvailable: !!fullscreenDisplayId,
     autoStart: { available: app.isPackaged, enabled: app.isPackaged && app.getLoginItemSettings().openAtLogin },
   };
@@ -772,6 +971,7 @@ function openSettings() {
   settingsWin.once('ready-to-show', () => settingsWin.show());
   settingsWin.on('closed', () => {
     settingsWin = null;
+    resyncMouseWindows();
     if (registeredShortcut === null && settings.shortcut) setShortcut(settings.shortcut); // 단축키 입력 중에 닫은 경우
   });
 }
@@ -884,10 +1084,11 @@ function buildPetMenu() {
   }));
 }
 
-function buildMenu() {
+// 캐릭터 우클릭·트레이·밥그릇 우클릭이 같이 쓰는 메뉴 항목
+function menuItems() {
   const visible = win && !win.isDestroyed() && win.isVisible();
   const label = shortcutLabel(registeredShortcut || settings.shortcut);
-  return Menu.buildFromTemplate([
+  return [
     { label: visible ? `숨기기 (${label})` : `보이기 (${label})`, click: toggleWindow },
     { label: '캐릭터', submenu: buildPetMenu() },
     { label: '표시할 모니터', submenu: buildDisplayMenu() },
@@ -901,9 +1102,24 @@ function buildMenu() {
     app.isPackaged
       ? { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (item) => applySetting('autoStart', item.checked) }
       : { label: 'Windows 시작 시 자동 실행 (빌드한 exe에서만)', enabled: false },
+    { label: '밥그릇 보이기', type: 'checkbox', checked: settings.bowl.show, click: (item) => applySetting('bowlShow', item.checked) },
     { type: 'separator' },
     { label: '설정…', click: openSettings },
     { label: '종료', click: quitApp },
+  ];
+}
+
+function buildMenu() {
+  return Menu.buildFromTemplate(menuItems());
+}
+
+// 밥그릇 우클릭: 그릇에서 할 일을 맨 위에 두고 나머지는 캐릭터 메뉴와 같음 (캐릭터는 돌아다녀서 우클릭하기 어려울 때)
+function buildBowlMenu() {
+  const empty = settings.bowl.level === 0;
+  return Menu.buildFromTemplate([
+    { label: empty ? '밥그릇 채우기' : '밥 먹으러 오게 하기', enabled: empty || !behavior.mission, click: bowlAction },
+    { type: 'separator' },
+    ...menuItems(),
   ]);
 }
 
@@ -930,6 +1146,7 @@ function quitApp() {
   if (tray) { tray.destroy(); tray = null; }
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.destroy();
   if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.destroy();
+  if (bowlWin && !bowlWin.isDestroyed()) bowlWin.destroy();
   if (win && !win.isDestroyed()) win.destroy();
   app.quit();
   // app.quit()으로 프로세스가 끝나지 않는 경우를 대비해 강제 종료
@@ -961,6 +1178,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     createWindow();
     createBubbleWindow();
+    createBowlWindow();
     createTray();
     screen.on('display-added', () => onDisplaysChanged('added'));
     screen.on('display-removed', () => onDisplaysChanged('removed'));
