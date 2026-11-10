@@ -9,7 +9,7 @@ const ctx = canvas.getContext('2d');
 const textEl = document.getElementById('text');
 
 const INK = '#3e2c26';
-const MAX_TEXT_W = 240; // 이보다 길면 줄바꿈
+const MAX_TEXT_W = 360; // 이보다 길면 줄바꿈 (남은 시간 문구가 이모지까지 한 줄에 들어가는 폭)
 const PAD_X = 16, PAD_Y = 8;
 const MARGIN = 5;       // 흔들린 테두리가 창 밖으로 잘리지 않게 둘레에 남기는 여백
 const TAIL_H = 13;      // 아래로 튀어나온 꼬리 길이
@@ -103,7 +103,9 @@ function startBoil() {
 }
 
 // ---------- 메인 프로세스와 통신 ----------
+let showSeq = 0; // 폰트를 기다리는 동안 새 문구가 오면 이전 문구는 버림
 window.bubble.onShow(async (text) => {
+  const seq = ++showSeq;
   tailX = null;
   textEl.textContent = text;
   textEl.style.maxWidth = `${MAX_TEXT_W}px`;
@@ -111,6 +113,7 @@ window.bubble.onShow(async (text) => {
   textEl.style.top = `${MARGIN + PAD_Y}px`;
   // 폰트를 다 불러온 뒤에 재야 글자 크기가 정확함 (못 불러와도 대체 글꼴로 진행)
   try { await document.fonts.load("21px 'Gaegu'", text); } catch (_) { /* 대체 글꼴 */ }
+  if (seq !== showSeq) return;
   const r = textEl.getBoundingClientRect();
   box = { w: Math.ceil(r.width) + PAD_X * 2, h: Math.ceil(r.height) + PAD_Y * 2 };
   window.bubble.size({ width: box.w + MARGIN * 2, height: box.h + TAIL_H + MARGIN * 2 });

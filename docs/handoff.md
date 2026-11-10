@@ -1,20 +1,20 @@
 # 인수인계 — 집에서 이어서 작업하기
 
-마지막 갱신: 2026-11-10 (v1.3.0 커밋 시점)
+마지막 갱신: 2026-11-10 (v1.4.0 커밋 시점)
 
-다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업(퇴근 시간 알림)을 정리했다.
+다른 PC, 다른 Claude 세션에서 이 문서만 보고 이어서 작업할 수 있도록 현재 상태와 다음 작업 후보를 정리했다.
 전체 계획과 지금까지의 변경 이력은 [plan.md](plan.md), 사용법은 [README.md](../README.md) 참고.
 
 ---
 
 ## 1. 현재 상태
 
-- 버전: **1.3.0** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
+- 버전: **1.4.0** (`package.json`). 1단계 MVP ~ 4단계 완성도까지 끝났고, 1.1.0·1.2.0은 기본 캐릭터 그림과 클릭 동작을 다듬은 버전
 - 기본 캐릭터 6종: 곰(default), 검은 고양이(cat), 푸들(dog), 토끼(rabbit), 쿼카(quokka), 오목눈이(bird)
-- 설치 프로그램: `dist/installer/DesktopPet-Setup-1.3.0.exe` (dist는 git에 올리지 않음)
+- 설치 프로그램: `dist/installer/DesktopPet-Setup-1.4.0.exe` (dist는 git에 올리지 않음)
 - GitHub: `m3rri/desktop-pet` (개인 계정, main 브랜치). 커밋 후 push는 직접 함
 
-### 클릭 동작 (1.3.0 기준, 클릭하면 이 중 하나를 무작위로 재생)
+### 클릭 동작 (1.4.0 기준, 클릭하면 이 중 하나를 무작위로 재생)
 
 | 캐릭터 | 클릭 동작 |
 |---|---|
@@ -54,6 +54,7 @@ npm test       # 모니터 선택·캐릭터 폴더 테스트 (27개)
 | `src/displays.js` | 모니터 식별·저장·복원 (테스트 있음) |
 | `src/fullscreen.js` | koffi로 user32 호출해 전체 화면 앱 감지 |
 | `src/bubble.*` | 말풍선 창. 글자 크기를 재고 손그림 테두리를 그림 |
+| `src/countdown.js` | 남은 시간 알림 문구 (테스트 있음) |
 | `src/settings.*` | 설정 창 (캐릭터, 움직임, 화면, 기타) |
 | `scripts/make-pets.js` | 기본 캐릭터 이미지와 앱 아이콘을 코드로 그려서 `assets/`에 생성 |
 | `scripts/image-encode.js` | PNG·APNG·ICO 인코더 |
@@ -119,26 +120,27 @@ npm run dist:win      # 설치 프로그램 → dist/installer/DesktopPet-Setup-
 
 ---
 
-## 7. 다음 작업: 퇴근 시간 알림
+## 7. 남은 시간 알림 (1.4.0)
 
-퇴근 시간이 가까워지면 캐릭터가 말풍선으로 알려주는 기능. 말풍선 글자를 이미지가 아닌 글자로 만든 이유가 이것.
-아직 정하지 않은 것:
-
-- 퇴근 시간 설정 방법 (설정 화면에 시각 입력, 요일별 여부)
-- 언제 알릴지 (예: 30분 전, 10분 전, 정각) 와 문구 (예: "퇴근까지 10분!")
-- 더블클릭했을 때 남은 시간을 보여줄지
-- 알림 말풍선을 더 오래 띄우거나 동작(점프 등)을 같이 재생할지
-
-구현은 메인 프로세스에서 1분마다 시각을 확인해 `showBubble(text, ms)`를 부르는 방식이면 됨.
+- 더블클릭 3번째마다 메인 `talk()`가 `countdownMessage(settings.countdown)`를 말함. 설정이 꺼져 있거나 비어 있으면 평소 대사
+- 문구 규칙은 `src/countdown.js` 한 곳에 모여 있음 (퇴근: 정색 `COLD`, 이모지 단계 `WORK_EMOJI`·`STEPS` / 마감: 종류별 말 `DEADLINE_KINDS`, 여유 `RELAXED`, 슬슬 `NUDGE`, 일수 단계). 바꾸면 `test/countdown.test.js`도 같이 고칠 것
+- 설정: `settings.countdown = { mode: 'work' | 'deadline' | 'off', workEnd: 'HH:MM', deadline: 'YYYY-MM-DDTHH:MM' | 'YYYY-MM-DD' | null, deadlineKind: 'exam' | 'assignment' | 'manuscript' | 'project' | 'other' }` (시각이 없으면 그날 밤 12시). 설정 화면 "남은 시간 알림"
 
 ---
 
-## 8. 새 세션 시작용 프롬프트
+## 8. 다음 작업 후보 (아직 정하지 않음)
+
+- 퇴근 시간이 되면 더블클릭하지 않아도 캐릭터가 먼저 알려주기 (예: 30분 전, 정각)
+- 요일별 퇴근 시간, 주말에는 알림 끄기
+- 말풍선이 떠 있는 동안 남은 시간 초가 줄어들게
+- 기본 캐릭터에 `dblclick` 동작 이미지 추가
+
+---
+
+## 9. 새 세션 시작용 프롬프트
 
 ```
 바탕화면에 캐릭터가 돌아다니는 Electron 앱(desktop-pet)을 이어서 작업하려고 해.
-docs/handoff.md에 현재 상태, 구조, 그림 생성 방법, 다음 작업이 정리돼 있어.
-
-이번에는 퇴근 시간 알림 기능을 추가하고 싶어.
-handoff.md 7장의 정하지 않은 것부터 같이 정하자.
+docs/handoff.md에 현재 상태, 구조, 그림 생성 방법, 지금까지 한 일과 다음 작업 후보가 정리돼 있어.
+먼저 handoff.md를 읽고, 다음에 뭘 할지 같이 정하자.
 ```

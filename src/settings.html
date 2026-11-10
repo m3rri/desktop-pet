@@ -30,6 +30,14 @@
     .row output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 150px; accent-color: var(--accent); }
     input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+    input[type=radio] { accent-color: var(--accent); margin: 0 4px 0 0; }
+    input[type=time], input[type=date] {
+      font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+      border-radius: 7px; padding: 4px 8px; color-scheme: light dark;
+    }
+    .radios { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+    .radios label { display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap; }
+    .row[hidden] { display: none; }
     select, button {
       font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
       border-radius: 7px; padding: 5px 10px; max-width: 230px;
@@ -112,6 +120,37 @@
     <div class="row">
       <div class="label">전체 화면 앱 실행 중에는 숨기기<span class="hint" id="fullscreen-hint">게임, 영상, 브라우저 F11 등</span></div>
       <input type="checkbox" id="fullscreen">
+    </div>
+  </div>
+
+  <h2>남은 시간 알림</h2>
+  <div class="card">
+    <div class="row">
+      <div class="label">알림 기준<span class="hint">더블클릭 3번 중 1번은 남은 시간을 말해 줍니다</span></div>
+      <div class="radios" id="countdown-mode">
+        <label><input type="radio" name="countdown-mode" value="work">퇴근 시간</label>
+        <label><input type="radio" name="countdown-mode" value="deadline">마감 날짜</label>
+        <label><input type="radio" name="countdown-mode" value="off">사용 안 함</label>
+      </div>
+    </div>
+    <div class="row" id="work-row">
+      <div class="label">퇴근 시간<span class="hint">매일 이 시각까지 남은 시간. 5시간 이상 남으면 정색합니다</span></div>
+      <input type="time" id="work-end">
+    </div>
+    <div class="row deadline-row">
+      <div class="label">마감 종류</div>
+      <select id="deadline-kind">
+        <option value="exam">시험</option>
+        <option value="assignment">과제</option>
+        <option value="manuscript">원고</option>
+        <option value="project">프로젝트</option>
+        <option value="other">기타</option>
+      </select>
+    </div>
+    <div class="row deadline-row">
+      <div class="label">마감<span class="hint">시각을 비워 두면 그날 밤 12시</span></div>
+      <input type="date" id="deadline-date">
+      <input type="time" id="deadline-time">
     </div>
   </div>
 

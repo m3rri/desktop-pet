@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { clamp, displayKey, resolveDisplay, fitInto, displayMenuLabel } = require('./displays');
 const { createFullscreenDetector } = require('./fullscreen');
+const { countdownMessage, validateCountdown } = require('./countdown');
 
 // 설정·로그 폴더를 %APPDATA%\desktop-pet 으로 고정.
 // 설치판은 productName("Desktop Pet")이 앱 이름이 되어 폴더가 %APPDATA%\Desktop Pet 으로 바뀌므로,
@@ -38,7 +39,11 @@ let settings = {
   sleepAfterSec: null,
   shortcut: DEFAULT_SHORTCUT,
   boilStatic: true,        // 정지 이미지 외곽선을 손그림처럼 일렁이게 (렌더러가 휘게 한 3장을 번갈아 보여줌)
+  // 남은 시간 알림 (더블클릭 3번 중 1번). mode: 'work' 매일 퇴근 시각 / 'deadline' 마감 날짜·시각(YYYY-MM-DDTHH:MM) / 'off'
+  // deadlineKind: 마감 종류 (exam 시험, assignment 과제, manuscript 원고, project 프로젝트, other 기타)
+  countdown: { mode: 'work', workEnd: '18:00', deadline: null, deadlineKind: 'exam' },
 };
+const DEFAULT_COUNTDOWN = { ...settings.countdown };
 
 // 보이기/숨기기: 사용자가 숨긴 것과 전체 화면 때문에 자동으로 숨긴 것을 따로 관리
 const visibility = {
@@ -87,6 +92,7 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() {
   try {
     settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) };
+    settings.countdown = { ...DEFAULT_COUNTDOWN, ...(settings.countdown || {}) }; // 예전 설정 파일에는 없음
   } catch (e) {
     if (e.code !== 'ENOENT') log('settings 읽기 실패, 기본값 사용:', e.message);
   }
@@ -241,7 +247,7 @@ function moveWindow(x, y) {
 // ---------- 말풍선 (더블클릭) ----------
 // 글자는 이미지가 아니라 bubble.html에서 글자로 그림 (나중에 퇴근 시간 알림처럼 매번 바뀌는 문구를 쓰기 위해)
 const DEFAULT_PHRASES = ['안녕!', '오늘도 수고했어', '쉬엄쉬엄 해', '물 한 잔 마시자', '기지개 한 번 켜자', '뭐 해?'];
-const bubble = { visible: false, width: 0, height: 0, tailX: null, hideTimer: null, ms: 0, lastPhrase: null };
+const bubble = { visible: false, width: 0, height: 0, tailX: null, hideTimer: null, ms: 0, lastPhrase: null, talkCount: 0 };
 
 function createBubbleWindow() {
   bubbleWin = new BrowserWindow({
@@ -306,9 +312,12 @@ function pickPhrase() {
   return text;
 }
 
-// 더블클릭: 걷거나 자던 중이면 멈추고 대사를 말함. 캐릭터에 dblclick 이미지가 있으면 그 동작도 재생
+// 더블클릭: 걷거나 자던 중이면 멈추고 대사를 말함. 캐릭터에 dblclick 이미지가 있으면 그 동작도 재생.
+// 3번째 더블클릭마다 퇴근(또는 마감)까지 남은 시간을 알려줌. 알림을 끄면 항상 평소 대사
 function talk() {
-  const text = pickPhrase();
+  bubble.talkCount += 1;
+  const countdown = bubble.talkCount % 3 === 0 ? countdownMessage(settings.countdown) : null;
+  const text = countdown || pickPhrase();
   const ms = clamp(2000 + text.length * 100, 2500, 6000); // 긴 문장은 오래 보여줌
   behavior.talkUntil = Date.now() + ms;
   if (pet.states.dblclick) setState('dblclick', { force: true });
@@ -617,6 +626,13 @@ function applySetting(key, value) {
       setDisplaySetting(d);
       break;
     }
+    case 'countdown': {
+      const next = { ...settings.countdown, ...value };
+      const error = validateCountdown(next);
+      if (error) return { ok: false, error };
+      settings.countdown = next;
+      break;
+    }
     case 'boilStatic':
       settings.boilStatic = !!value;
       reloadPet(); // 렌더러가 이미지를 다시 디코딩하며 적용
@@ -661,6 +677,7 @@ function settingsState() {
     shortcutLabel: shortcutLabel(settings.shortcut),
     hideOnFullscreen: settings.hideOnFullscreen,
     boilStatic: settings.boilStatic,
+    countdown: settings.countdown,
     fullscreenAvailable: !!fullscreenDisplayId,
     autoStart: { available: app.isPackaged, enabled: app.isPackaged && app.getLoginItemSettings().openAtLogin },
   };

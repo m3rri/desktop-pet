@@ -127,6 +127,31 @@ function renderDisplay() {
 $('fullscreen').addEventListener('change', (e) => set('hideOnFullscreen', e.target.checked));
 $('autostart').addEventListener('change', (e) => set('autoStart', e.target.checked));
 
+// ---------- 남은 시간 알림 ----------
+document.querySelectorAll('input[name=countdown-mode]').forEach((r) => r.addEventListener('change', () => {
+  if (r.checked) set('countdown', { mode: r.value });
+}));
+$('work-end').addEventListener('change', (e) => { if (e.target.value) set('countdown', { workEnd: e.target.value }); });
+$('deadline-kind').addEventListener('change', (e) => set('countdown', { deadlineKind: e.target.value }));
+// 날짜와 시각을 합쳐 "YYYY-MM-DDTHH:MM"으로 저장. 시각이 비어 있으면 날짜만 (그날 밤 12시)
+function sendDeadline() {
+  const date = $('deadline-date').value, time = $('deadline-time').value;
+  set('countdown', { deadline: date ? (time ? `${date}T${time}` : date) : null });
+}
+$('deadline-date').addEventListener('change', sendDeadline);
+$('deadline-time').addEventListener('change', sendDeadline);
+function renderCountdown() {
+  const c = state.countdown;
+  document.querySelectorAll('input[name=countdown-mode]').forEach((r) => { r.checked = r.value === c.mode; });
+  $('work-row').hidden = c.mode !== 'work';
+  document.querySelectorAll('.deadline-row').forEach((r) => { r.hidden = c.mode !== 'deadline'; });
+  if (document.activeElement !== $('work-end')) $('work-end').value = c.workEnd || '';
+  $('deadline-kind').value = c.deadlineKind || 'exam';
+  const [date = '', time = ''] = (c.deadline || '').split('T');
+  if (document.activeElement !== $('deadline-date')) $('deadline-date').value = date;
+  if (document.activeElement !== $('deadline-time')) $('deadline-time').value = time;
+}
+
 // ---------- 단축키 입력 ----------
 const KEY_NAMES = {
   Space: 'Space', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert',
@@ -196,6 +221,7 @@ function render(s) {
   renderSpeed();
   renderSleep();
   renderDisplay();
+  renderCountdown();
   $('boil').checked = state.boilStatic;
   $('fullscreen').checked = state.hideOnFullscreen;
   $('fullscreen').disabled = !state.fullscreenAvailable;
